@@ -11,6 +11,7 @@ import contextlib
 import importlib.metadata
 import io
 import json
+import logging
 import re
 import sys
 import traceback
@@ -250,8 +251,12 @@ def normalize_interactions(plcomplex: Any) -> tuple[dict[str, list[dict[str, Any
         result["metal_coordination"].append(
             _edge(
                 interaction.metal,
-                interaction.target,
-                residue=_residue(interaction),
+                interaction.target.atom,
+                residue=(
+                    _residue(interaction)
+                    if str(interaction.location).startswith("protein")
+                    else None
+                ),
                 metadata={
                     "distance": interaction.distance,
                     "location": interaction.location,
@@ -275,12 +280,25 @@ def analyze_job(job: dict[str, Any], engine: dict[str, str]) -> dict[str, Any]:
 
     captured_stdout = io.StringIO()
     captured_stderr = io.StringIO()
-    with contextlib.redirect_stdout(captured_stdout), contextlib.redirect_stderr(
-        captured_stderr
-    ):
-        molecule = PDBComplex()
-        molecule.load_pdb(job["complex_path"])
-        molecule.analyze()
+    logged_warnings: list[str] = []
+
+    class WarningCollector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if record.levelno >= logging.WARNING:
+                logged_warnings.append(self.format(record))
+
+    warning_collector = WarningCollector()
+    root_logger = logging.getLogger()
+    root_logger.addHandler(warning_collector)
+    try:
+        with contextlib.redirect_stdout(captured_stdout), contextlib.redirect_stderr(
+            captured_stderr
+        ):
+            molecule = PDBComplex()
+            molecule.load_pdb(job["complex_path"])
+            molecule.analyze()
+    finally:
+        root_logger.removeHandler(warning_collector)
 
     target = job["target"]
     if target not in molecule.interaction_sets:
@@ -291,7 +309,10 @@ def analyze_job(job: dict[str, Any], engine: dict[str, str]) -> dict[str, Any]:
         )
     interactions, residues = normalize_interactions(molecule.interaction_sets[target])
     diagnostics = captured_stdout.getvalue() + captured_stderr.getvalue()
-    warnings = [line.strip() for line in diagnostics.splitlines() if line.strip()][-20:]
+    warnings = (
+        logged_warnings
+        + [line.strip() for line in diagnostics.splitlines() if line.strip()]
+    )[-20:]
     profile = {
         "schema_version": PROFILE_SCHEMA_VERSION,
         "title": job["title"],
@@ -305,6 +326,14 @@ def analyze_job(job: dict[str, Any], engine: dict[str, str]) -> dict[str, Any]:
     }
     validate_profile(profile)
     return profile
+
+
+def profile_for_job(profile: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    """Apply pose-local display metadata after a chemistry cache hit."""
+
+    result = dict(profile)
+    result["title"] = job["title"]
+    return result
 
 
 def run_manifest(path: Path) -> int:
@@ -328,6 +357,7 @@ def run_manifest(path: Path) -> int:
         cache_hit = profile is not None
         if cache_hit:
             hits += 1
+            profile = profile_for_job(profile, job)
         else:
             try:
                 profile = analyze_job(job, engine)
@@ -398,4 +428,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

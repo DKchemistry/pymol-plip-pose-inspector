@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 from .cache import default_cache_dir
 from .constants import (
+    EXPORT_SCHEMA_VERSION,
     PROFILE_SCHEMA_VERSION,
     TARGET_CHAIN_CANDIDATES,
     TARGET_RESNAME,
@@ -296,6 +297,7 @@ def export_bundle(
                     "pose_hash": sha256_text(ligand_pdb),
                     "hydrogen_policy": hydrogen_policy,
                     "analysis_options": {
+                        "export_schema": EXPORT_SCHEMA_VERSION,
                         "receptor_selection": receptor_selection,
                         "receptor_state": receptor_state,
                         "profile_schema": PROFILE_SCHEMA_VERSION,

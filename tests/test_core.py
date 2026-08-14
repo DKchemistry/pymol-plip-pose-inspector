@@ -63,6 +63,16 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_profile(profile)
 
+    def test_profile_rejects_invalid_geometry(self):
+        profile = empty_profile(
+            title="pose", receptor_hash="r", pose_hash="p", hydrogen_policy="use_input"
+        )
+        profile["interactions"]["hydrogen_bonds"].append(
+            {"start": [0, 1], "end": [0, 1, 2], "metadata": {}}
+        )
+        with self.assertRaises(ValueError):
+            validate_profile(profile)
+
     def test_cache_round_trip_and_invalidation(self):
         profile = empty_profile(
             title="pose", receptor_hash="r", pose_hash="p", hydrogen_policy="add_missing"
@@ -82,6 +92,10 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(cache.load(key), profile)
             changed = dict(job, pose_hash="different")
             self.assertNotEqual(key, make_cache_key(changed, engine))
+            changed_filter = dict(job, analysis_options={"filter": "all"})
+            self.assertNotEqual(key, make_cache_key(changed_filter, engine))
+            changed_engine = dict(engine, openbabel="3.2.2")
+            self.assertNotEqual(key, make_cache_key(job, changed_engine))
 
             path = cache.path_for(key)
             with gzip.open(path, "rt", encoding="utf-8") as handle:

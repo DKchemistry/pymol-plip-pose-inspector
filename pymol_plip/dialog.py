@@ -118,12 +118,15 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self.state_count = QtWidgets.QLabel("—")
         self.current_pose = QtWidgets.QLabel("—")
         self.current_pose.setWordWrap(True)
+        self.chemistry_status = QtWidgets.QLabel("Hydrogen policy: —")
+        self.chemistry_status.setWordWrap(True)
         form.addRow("Receptor selection", self.receptor)
         form.addRow("Ligand object/selection", self.ligand)
         form.addRow("Fixed receptor state", self.receptor_state)
         form.addRow("", self.filtered)
         form.addRow("Ligand states", self.state_count)
         form.addRow("Current pose", self.current_pose)
+        form.addRow("Profile", self.chemistry_status)
         outer.addWidget(selectors)
 
         actions = QtWidgets.QHBoxLayout()
@@ -190,6 +193,12 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self.status.setWordWrap(True)
         outer.addWidget(self.engine_label)
         outer.addWidget(self.status)
+        self.failures_box = QtWidgets.QPlainTextEdit()
+        self.failures_box.setReadOnly(True)
+        self.failures_box.setMaximumHeight(85)
+        self.failures_box.setPlaceholderText("Per-state failures will appear here.")
+        self.failures_box.hide()
+        outer.addWidget(self.failures_box)
 
         self.precompute.clicked.connect(lambda: self._analyze("all"))
         self.analyze_current.clicked.connect(lambda: self._analyze("current"))
@@ -239,9 +248,13 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self._refresh_ligand_info()
 
     def _refresh_ligand_info(self) -> None:
-        _name, total, state, title = self.controller.ligand_info(self.ligand.currentText())
+        name, total, state, title = self.controller.ligand_info(self.ligand.currentText())
         self.state_count.setText(str(total) if total else "Selection must resolve to one object")
-        self.current_pose.setText(f"{state}/{total}: {title}" if total else "—")
+        if total and name == self.controller.active_ligand_object:
+            marker = "analyzed" if state in self.controller.profiles else "not analyzed"
+            self.current_pose.setText(f"{state}/{total}: {title} ({marker})")
+        else:
+            self.current_pose.setText(f"{state}/{total}: {title}" if total else "—")
 
     def _analyze(self, states: str) -> None:
         try:
@@ -291,6 +304,32 @@ class PoseInspectorDialog(QtWidgets.QDialog):
                 f"OpenBabel {self.controller.engine.get('openbabel', '?')} / "
                 f"Python {self.controller.engine.get('python', '?')}"
             )
+        state = self.controller.current_status()[0]
+        profile = self.controller.profiles.get(state)
+        if profile is None:
+            self.chemistry_status.setText("Hydrogen policy: — (current pose not analyzed)")
+            self.chemistry_status.setToolTip("")
+        else:
+            policy = (
+                "use explicit input hydrogens"
+                if profile.get("hydrogen_policy") == "use_input"
+                else "PLIP adds missing polar hydrogens"
+            )
+            warning_count = len(profile.get("warnings", ()))
+            suffix = f"; {warning_count} diagnostic message(s)" if warning_count else ""
+            self.chemistry_status.setText(f"Hydrogen policy: {policy}{suffix}")
+            self.chemistry_status.setToolTip("\n".join(profile.get("warnings", ())))
+        if self.controller.failures:
+            self.failures_box.setPlainText(
+                "\n".join(
+                    f"State {state}: {message}"
+                    for state, message in sorted(self.controller.failures.items())
+                )
+            )
+            self.failures_box.show()
+        else:
+            self.failures_box.clear()
+            self.failures_box.hide()
         self._refresh_ligand_info()
 
     def _state_changed(self, state: int, title: str, analyzed: bool) -> None:
@@ -309,4 +348,3 @@ class PoseInspectorDialog(QtWidgets.QDialog):
     def _show_error(self, message: str) -> None:
         self.status.setText(message)
         QtWidgets.QMessageBox.warning(self, "PLIP Pose Inspector", message)
-

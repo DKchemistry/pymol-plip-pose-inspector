@@ -38,6 +38,36 @@ class RenderingTests(unittest.TestCase):
             cmd.get_names("all", enabled_only=1),
         )
 
+    def test_rounded_dash_construction(self):
+        from pymol_plip.rendering import dashed_segment
+
+        dashed = dashed_segment(
+            (0, 0, 0),
+            (2, 0, 0),
+            color=(0.5, 0.5, 0.5),
+            dash_length=0.15,
+            dash_gap=0.5,
+        )
+        self.assertEqual(len(dashed), 4 * 14)
+        solid = dashed_segment(
+            (0, 0, 0),
+            (2, 0, 0),
+            color=(0, 0, 1),
+            dash_length=0,
+            dash_gap=0,
+        )
+        self.assertEqual(len(solid), 14)
+        self.assertEqual(
+            dashed_segment(
+                (0, 0, 0),
+                (0, 0, 0),
+                color=(0, 0, 1),
+                dash_length=0,
+                dash_gap=0,
+            ),
+            [],
+        )
+
     def test_overlay_survives_pse_round_trip(self):
         from pymol_plip.rendering import render_profiles
 

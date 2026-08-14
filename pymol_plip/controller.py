@@ -276,10 +276,12 @@ class PoseInspectorController(QtCore.QObject):
                 self._handle_event(json.loads(line))
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 self._stderr_buffer += f"Invalid worker output ({exc}): {line}\n"
+                self._stderr_buffer = self._stderr_buffer[-131_072:]
 
     def _read_stderr(self) -> None:
         if self.process is not None:
             self._stderr_buffer += bytes(self.process.readAllStandardError()).decode("utf-8", "replace")
+            self._stderr_buffer = self._stderr_buffer[-131_072:]
 
     def _handle_event(self, event: dict[str, Any]) -> None:
         kind = event.get("event")
@@ -314,7 +316,20 @@ class PoseInspectorController(QtCore.QObject):
     def _process_error(self, error: Any) -> None:
         if self._cancelled:
             return
-        self.status_changed.emit(f"Worker process error: {error}")
+        detail = self.process.errorString() if self.process is not None else str(error)
+        message = f"Worker process error: {detail}"
+        self.status_changed.emit(message)
+        if error == QtCore.QProcess.FailedToStart:
+            process = self.process
+            bundle = self.bundle
+            self.process = None
+            self.bundle = None
+            if bundle is not None:
+                bundle.cleanup()
+            if process is not None:
+                process.deleteLater()
+            self.running_changed.emit(False)
+            self.error_occurred.emit(message)
 
     def _process_finished(self, exit_code: int, exit_status: Any) -> None:
         process = self.process
@@ -324,7 +339,6 @@ class PoseInspectorController(QtCore.QObject):
         bundle = self.bundle
         self.process = None
         self.bundle = None
-        self.running_changed.emit(False)
 
         try:
             if self._cancelled:
@@ -392,6 +406,7 @@ class PoseInspectorController(QtCore.QObject):
                 process.deleteLater()
             self._pending_profiles = {}
             self._pending_failures = {}
+            self.running_changed.emit(False)
 
     def _resolve_types(self, types: str) -> list[str]:
         value = types.strip().lower()
@@ -467,6 +482,8 @@ class PoseInspectorController(QtCore.QObject):
 
     def current_counts(self) -> tuple[dict[str, int], dict[str, int]]:
         current = max(1, int(self.cmd.get_state()))
+        if self.total_states:
+            current = min(current, self.total_states)
         current_profile = self.profiles.get(current)
         current_counts = (
             interaction_counts(current_profile)
@@ -497,10 +514,13 @@ class PoseInspectorController(QtCore.QObject):
         if not source_exists and self.run is not None:
             title = "Source ligand object was deleted"
             analyzed = False
+            if self.run.pocket_name in self.cmd.get_names("all"):
+                self.cmd.delete(self.run.pocket_name)
         if state != self._last_state or title != self._last_title:
             self._last_state = state
             self._last_title = title
-            self._update_pocket(force=True)
+            if source_exists:
+                self._update_pocket(force=True)
             self.state_changed.emit(state, title, analyzed)
 
     @staticmethod
@@ -547,4 +567,3 @@ class PoseInspectorController(QtCore.QObject):
             self.cmd.group(self.run.structures_group, self.run.pocket_name)
         except Exception as exc:
             self.status_changed.emit(f"Interaction overlays are ready, but pocket display failed: {exc}")
-

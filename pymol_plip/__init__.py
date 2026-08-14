@@ -13,6 +13,17 @@ from .constants import PLUGIN_VERSION as __version__
 
 _controller = None
 _dialog = None
+_initialized = False
+
+
+def _as_bool(value):
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "on", "true", "yes"}:
+            return True
+        if normalized in {"0", "off", "false", "no"}:
+            return False
+    return bool(int(value))
 
 
 def get_controller():
@@ -53,8 +64,8 @@ def plip_analyze(
         ligand=str(ligand),
         states=states,
         receptor_state=int(receptor_state),
-        filtered=bool(int(filtered)),
-        pocket=bool(int(pocket)),
+        filtered=_as_bool(filtered),
+        pocket=_as_bool(pocket),
     )
 
 
@@ -67,6 +78,9 @@ def plip_clear():
 
 
 def __init_plugin__(app=None):
+    global _initialized
+    if _initialized:
+        return
     from pymol import cmd
     from pymol.plugins import addmenuitemqt
 
@@ -75,4 +89,4 @@ def __init_plugin__(app=None):
     cmd.extend("plip_toggle", plip_toggle)
     cmd.extend("plip_clear", plip_clear)
     addmenuitemqt("PLIP Pose Inspector", plip_gui)
-
+    _initialized = True
