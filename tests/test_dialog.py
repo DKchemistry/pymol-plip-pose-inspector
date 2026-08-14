@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 try:
     from pymol import cmd
@@ -47,6 +49,10 @@ class DialogGeometryTests(unittest.TestCase):
         self.assertTrue(self.dialog.current_pose.isReadOnly())
         self.assertTrue(self.dialog.chemistry_status.isReadOnly())
         self.assertGreaterEqual(self.dialog.width(), 720)
+        with tempfile.TemporaryDirectory() as directory:
+            screenshot = Path(directory) / "dialog.png"
+            self.assertTrue(self.dialog.grab().save(str(screenshot)))
+            self.assertGreater(screenshot.stat().st_size, 1_000)
 
     def test_labels_tooltips_pocket_modes_and_show_rescan(self):
         self.assertEqual(self.dialog.analyze_current.text(), "Analyze Current Only")

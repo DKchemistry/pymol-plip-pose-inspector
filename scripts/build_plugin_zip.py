@@ -16,7 +16,7 @@ OUTPUT = ROOT / "dist" / f"PLIP_Pose_Inspector-{VERSION}.zip"
 
 def files_to_package() -> list[Path]:
     files = sorted((ROOT / "pymol_plip").glob("*.py"))
-    files.extend([ROOT / "README.md", ROOT / "environment.yml"])
+    files.extend([ROOT / "README.md", ROOT / "CHANGELOG.md", ROOT / "environment.yml"])
     return files
 
 

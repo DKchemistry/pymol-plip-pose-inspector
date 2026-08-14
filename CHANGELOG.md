@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0 — 2026-08-14
+
+- Replaced fixed-radius CGO contacts with state-aligned native PyMOL
+  measurement objects. Global `dash_radius` now works normally.
+- Replaced the timer-rebuilt pocket with a PSE-safe discrete molecular object.
+- Added **Current pose**, **All analyzed poses**, and **Hidden** pocket modes,
+  plus `plip_pocket` and `plip_analyze pocket=...` command support.
+- Preserved cache compatibility and in-place replacement of Beta 0.1 overlays.
+- Renamed **Analyze Current Only** and **Refresh Object Lists**, documented the
+  latter, and refresh object menus whenever the dialog is shown.
+- Separated Current Pose and Profile into full-width read-only status fields.
+- Added cross-version measurement, dash inheritance, pocket, dialog geometry,
+  current-only merge, 118-state, cancellation, and PSE persistence tests.
+
 ## 0.1.0 — 2026-08-14
 
 - Initial Apple Silicon beta.

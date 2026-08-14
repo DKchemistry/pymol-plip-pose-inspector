@@ -3,8 +3,8 @@
 PLIP Pose Inspector is a nonmodal PyMOL 2.5+/Qt5 plugin for reviewing
 protein–ligand contacts across a multi-state docking object. It runs PLIP in a
 separate conda environment, caches every pose independently, and renders one
-state-aligned CGO object per interaction class. PyMOL's ordinary state arrows
-therefore change both the ligand pose and its contacts immediately.
+state-aligned native measurement object per interaction class. PyMOL's ordinary
+state arrows therefore change both the ligand pose and its contacts immediately.
 
 The current release is an Apple Silicon beta tested against the local PyMOL
 2.5.0 and 3.1.0 installations in this workspace.
@@ -20,12 +20,15 @@ The current release is an Apple Silicon beta tested against the local PyMOL
   metal coordination.
 - Independent visibility controls for every class; hydrophobic contacts start
   hidden to reduce clutter.
-- Optional, plugin-owned sticks view of the current interacting receptor
-  residues.
+- A plugin-owned pocket can show residues for the current pose, the union from
+  all analyzed poses, or remain hidden. Its geometry is state-aligned and
+  survives saving and reopening a PSE.
+- Native measurement objects inherit PyMOL's global `dash_radius`, while PLIP
+  colors and class-specific dash length/gap settings remain object-local.
 - Original receptor and ligand objects and their representations are not
   modified.
-- Scriptable `plip_gui`, `plip_analyze`, `plip_toggle`, and `plip_clear`
-  commands.
+- Scriptable `plip_gui`, `plip_analyze`, `plip_toggle`, `plip_pocket`, and
+  `plip_clear` commands.
 
 ## Install
 
@@ -42,7 +45,7 @@ python3 scripts/build_plugin_zip.py
 ```
 
 In PyMOL, open **Plugin → Plugin Manager → Install New Plugin**, select
-`dist/PLIP_Pose_Inspector-0.1.0.zip`, then open **Plugin → PLIP Pose
+`dist/PLIP_Pose_Inspector-0.2.0.zip`, then open **Plugin → PLIP Pose
 Inspector**. The plugin auto-detects
 `~/miniconda3/envs/pymol-plip-plugin/bin/python`; a different interpreter can
 be selected and health-checked under **Settings**.
@@ -57,8 +60,14 @@ The plugin never installs or upgrades dependencies when PyMOL starts.
 3. Press **Precompute All**. Analysis occurs outside PyMOL and existing
    overlays remain visible until a complete or partially successful result is
    ready.
-4. Use PyMOL's state arrows normally. Toggle interaction classes or the pocket
-   at any time.
+4. Use PyMOL's state arrows normally. Toggle interaction classes or choose
+   **Current pose**, **All analyzed poses**, or **Hidden** for the pocket.
+
+**Analyze Current Only** is useful for a quick one-pose check. It still creates
+empty overlay and pocket states elsewhere, and later analyses of the same
+objects merge into the run. **Refresh Object Lists** rescans molecular objects
+that were loaded, deleted, or renamed while the dialog was open; this also
+happens automatically whenever the dialog is shown.
 
 `Hydrophobic contacts` uses PLIP's geometric interaction definition; it is not
 a generic all-atom van der Waals calculation.
@@ -67,12 +76,25 @@ Equivalent command-line use:
 
 ```pml
 plip_gui
-plip_analyze receptor, ligands, states=all
-plip_analyze receptor, ligands, states=current, receptor_state=1
+plip_analyze receptor, ligands, states=all, pocket=current
+plip_analyze receptor, ligands, states=current, receptor_state=1, pocket=all
 plip_toggle types=hbonds,salt, enabled=off
 plip_toggle types=all, enabled=toggle
+plip_pocket mode=current
+plip_pocket mode=all
+plip_pocket mode=off
 plip_clear
 ```
+
+For native dash styling, normal PyMOL commands now work immediately:
+
+```pml
+set dash_radius, .09
+set dash_gap, .25, PLIP_Pose_Inspector_*_Hydrophobic_contacts
+```
+
+The plugin never changes the global dash radius during ordinary analysis.
+`pocket=1` and `pocket=0` remain aliases for `current` and `off`.
 
 `plip_clear` deletes only namespaced objects owned by the plugin. Closing the
 dialog leaves overlays and state synchronization active.
@@ -90,7 +112,7 @@ starts precomputation. See [Beta feedback](docs/BETA_FEEDBACK.md) for the short
 review checklist. A precomputed PyMOL 2.5-compatible session is also available
 at `demos/EP4_first5_beta.pse`.
 
-![EP4 five-pose beta, state 1](docs/EP4_first5_beta.png)
+![EP4 five-pose beta, state 2](docs/EP4_first5_beta.png)
 
 ## Tests
 
@@ -102,13 +124,15 @@ python3 -m unittest discover -s tests -v
 ```
 
 The first command covers serialization, cache invalidation, normalized
-profiles, and error cases. The latter two validate explicit empty CGO states
-and PSE persistence in PyMOL 2.5 and 3.1.
+profiles, dialog geometry, and error cases. The latter two validate native
+measurement colors/settings, explicit empty states, pocket modes, and PSE
+persistence in PyMOL 2.5 and 3.1.
 
-The supplied 118-pose integration run completed with 118/118 profiles and no
-failures in 26.3 seconds cold and 0.61 seconds warm (98 MB peak PyMOL-process
-RSS on this machine). All nine overlay objects contained 118 states, and 1,180
-programmatic state changes completed in under a millisecond before GUI redraw.
+The Beta 0.2 supplied 118-pose integration completed with 118/118 profiles and
+no failures in both PyMOL versions. PyMOL 2.5 took 28.5 seconds cold and 3.9
+seconds warm (91 MB peak RSS); PyMOL 3.1 took 28.0 seconds cold and 3.8 seconds
+warm (122 MB peak RSS). Warm timing includes rebuilding every state-aligned
+native object from 118 cache hits. State switching itself remains immediate.
 
 ## Attribution
 

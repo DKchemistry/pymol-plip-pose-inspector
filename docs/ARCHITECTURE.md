@@ -20,7 +20,7 @@ flowchart LR
     D -->|yes| E["Versioned normalized profile"]
     D -->|no| F["PLIP analysis"]
     F --> E
-    E --> G["Nine state-aligned CGO objects"]
+    E --> G["Nine state-aligned measurement objects"]
     G --> H["Native PyMOL state arrows"]
 ```
 
@@ -57,7 +57,7 @@ The canonical classes are `hydrogen_bonds`, `hydrophobic_contacts`,
 `halogen_bonds`, `water_bridges`, `salt_bridges`,
 `pi_stacking_parallel`, `pi_stacking_t`, `pi_cation`, and
 `metal_coordination`. A water bridge is represented by two connected edges so
-the water position remains visible in the CGO geometry.
+the water position remains visible in the measurement geometry.
 
 ## Cache
 
@@ -76,18 +76,30 @@ cached even when another state fails or the later run is cancelled.
 
 ## Rendering and ownership
 
-One CGO object is created per interaction class. Every object receives exactly
-the ligand's state count, including an explicit empty CGO for missing or failed
-states. This prevents a previous state's contacts from remaining visible and
-lets PyMOL synchronize geometry natively without analysis or redraw callbacks.
+One native PyMOL measurement object is created per interaction class. Every
+object receives the ligand's complete state count. A zero-length measurement
+in the final state is invisible but forces PyMOL to retain trailing and
+intermediate empty states for missing, failed, or not-yet-analyzed poses. This
+prevents a previous state's contacts from remaining visible and lets PyMOL
+synchronize geometry natively without analysis or redraw callbacks.
+
+Measurements use PLIP's established colors and class-specific dash length/gap
+patterns. Their `dash_radius` object setting is deliberately unset, so they
+inherit the user's global PyMOL setting like any user-created measurement.
 
 All names begin with `PLIP_Pose_Inspector_` and live under a run group with
 `Interactions` and `Structures` subgroups. Only these names are ever deleted.
-The optional pocket is a disposable copy of current interacting receptor
-residues; the original receptor and ligand representations remain unchanged.
+The pocket is a discrete molecular object. In `current` mode each state holds
+exactly that profile's receptor residues plus a hidden sentinel atom; the
+sentinel retains explicit empty and trailing states. In `all` mode a static
+one-state object holds the deduplicated residue union. `off` removes only the
+plugin-owned pocket. These objects survive a PSE round-trip without a live
+controller, and the original receptor and ligand representations remain
+unchanged.
 
-The 175 ms state watcher updates only dialog text/counts and this optional
-pocket. Closing the dialog does not destroy the controller or watcher.
+The 175 ms state watcher updates only dialog text and counts. It never rebuilds
+or deletes molecular geometry. Closing the dialog does not destroy the
+controller or watcher.
 
 ## Failure and cancellation semantics
 

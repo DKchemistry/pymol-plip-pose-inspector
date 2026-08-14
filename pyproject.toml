@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymol-plip-pose-inspector"
-version = "0.1.0"
+version = "0.2.0"
 description = "State-aware PLIP interaction overlays for PyMOL docking poses"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,4 +23,3 @@ include = ["pymol_plip*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-

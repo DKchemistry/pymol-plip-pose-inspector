@@ -13,3 +13,4 @@ pymol_plip.__init_plugin__()
 pymol_plip.plip_gui()
 python end
 plip_analyze EP4_receptor, EP4_poses, states=all
+set dash_radius, .09
