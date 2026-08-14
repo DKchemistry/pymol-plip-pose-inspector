@@ -95,12 +95,13 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self._settings_dialog: SettingsDialog | None = None
         self.setWindowTitle("PLIP Pose Inspector")
         self.setModal(False)
-        self.resize(590, 660)
+        self.resize(720, 700)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
 
         outer = QtWidgets.QVBoxLayout(self)
         selectors = QtWidgets.QGroupBox("Objects and states")
-        form = QtWidgets.QFormLayout(selectors)
+        selectors_layout = QtWidgets.QVBoxLayout(selectors)
+        form = QtWidgets.QFormLayout()
         self.receptor = QtWidgets.QComboBox()
         self.receptor.setEditable(True)
         self.ligand = QtWidgets.QComboBox()
@@ -116,25 +117,43 @@ class PoseInspectorDialog(QtWidgets.QDialog):
             "Disable this for an advanced receptor selection that deliberately includes cofactors or other organic atoms."
         )
         self.state_count = QtWidgets.QLabel("—")
-        self.current_pose = QtWidgets.QLabel("—")
-        self.current_pose.setWordWrap(True)
-        self.chemistry_status = QtWidgets.QLabel("Hydrogen policy: —")
-        self.chemistry_status.setWordWrap(True)
         form.addRow("Receptor selection", self.receptor)
         form.addRow("Ligand object/selection", self.ligand)
         form.addRow("Fixed receptor state", self.receptor_state)
         form.addRow("", self.filtered)
         form.addRow("Ligand states", self.state_count)
-        form.addRow("Current pose", self.current_pose)
-        form.addRow("Profile", self.chemistry_status)
+        selectors_layout.addLayout(form)
+
+        status_rows = QtWidgets.QGridLayout()
+        self.current_pose = QtWidgets.QLineEdit("—")
+        self.current_pose.setReadOnly(True)
+        self.current_pose.setToolTip("Current ligand state, title, and analysis status.")
+        self.chemistry_status = QtWidgets.QLineEdit("Hydrogen policy: —")
+        self.chemistry_status.setReadOnly(True)
+        self.chemistry_status.setToolTip("Hydrogen policy for the current analyzed pose.")
+        row_height = max(
+            self.current_pose.sizeHint().height(),
+            self.chemistry_status.sizeHint().height(),
+        )
+        self.current_pose.setFixedHeight(row_height)
+        self.chemistry_status.setFixedHeight(row_height)
+        status_rows.addWidget(QtWidgets.QLabel("Current Pose"), 0, 0)
+        status_rows.addWidget(self.current_pose, 1, 0)
+        status_rows.addWidget(QtWidgets.QLabel("Profile"), 2, 0)
+        status_rows.addWidget(self.chemistry_status, 3, 0)
+        status_rows.setColumnStretch(0, 1)
+        selectors_layout.addLayout(status_rows)
         outer.addWidget(selectors)
 
         actions = QtWidgets.QHBoxLayout()
         self.precompute = QtWidgets.QPushButton("Precompute All")
-        self.analyze_current = QtWidgets.QPushButton("Analyze Current")
+        self.analyze_current = QtWidgets.QPushButton("Analyze Current Only")
         self.cancel_button = QtWidgets.QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
-        self.refresh_button = QtWidgets.QPushButton("Refresh Objects")
+        self.refresh_button = QtWidgets.QPushButton("Refresh Object Lists")
+        self.refresh_button.setToolTip(
+            "Rescan molecular objects loaded, deleted, or renamed while this dialog is open."
+        )
         actions.addWidget(self.precompute)
         actions.addWidget(self.analyze_current)
         actions.addWidget(self.cancel_button)
@@ -174,11 +193,18 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         options = QtWidgets.QHBoxLayout()
         self.all_button = QtWidgets.QPushButton("Show/Hide All")
         self.clear_button = QtWidgets.QPushButton("Clear Overlay")
-        self.pocket = QtWidgets.QCheckBox("Show interacting-residue pocket")
-        self.pocket.setChecked(True)
+        pocket_label = QtWidgets.QLabel("Pocket")
+        self.pocket = QtWidgets.QComboBox()
+        self.pocket.addItem("Current pose", "current")
+        self.pocket.addItem("All analyzed poses", "all")
+        self.pocket.addItem("Hidden", "off")
+        self.pocket.setToolTip(
+            "Show interacting receptor residues for the current pose, their analyzed union, or hide the plugin-owned pocket."
+        )
         self.settings_button = QtWidgets.QPushButton("Settings…")
         options.addWidget(self.all_button)
         options.addWidget(self.clear_button)
+        options.addWidget(pocket_label)
         options.addWidget(self.pocket, 1)
         options.addWidget(self.settings_button)
         outer.addLayout(options)
@@ -207,7 +233,7 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self.ligand.currentTextChanged.connect(self._refresh_ligand_info)
         self.all_button.clicked.connect(self._toggle_all)
         self.clear_button.clicked.connect(controller.clear)
-        self.pocket.toggled.connect(controller.set_pocket_enabled)
+        self.pocket.currentIndexChanged.connect(self._set_pocket_mode)
         self.settings_button.clicked.connect(self._show_settings)
 
         controller.status_changed.connect(self.status.setText)
@@ -223,6 +249,10 @@ class PoseInspectorDialog(QtWidgets.QDialog):
     def closeEvent(self, event: Any) -> None:
         self.hide()
         event.ignore()
+
+    def showEvent(self, event: Any) -> None:
+        self.refresh_objects()
+        super().showEvent(event)
 
     def refresh_objects(self) -> None:
         receptor_text = self.receptor.currentText().strip()
@@ -255,6 +285,7 @@ class PoseInspectorDialog(QtWidgets.QDialog):
             self.current_pose.setText(f"{state}/{total}: {title} ({marker})")
         else:
             self.current_pose.setText(f"{state}/{total}: {title}" if total else "—")
+        self.current_pose.setToolTip(self.current_pose.text())
 
     def _analyze(self, states: str) -> None:
         try:
@@ -264,10 +295,13 @@ class PoseInspectorDialog(QtWidgets.QDialog):
                 states=states,
                 receptor_state=self.receptor_state.value(),
                 filtered=self.filtered.isChecked(),
-                pocket=self.pocket.isChecked(),
+                pocket=self.pocket.currentData(),
             )
         except Exception as exc:
             self._show_error(str(exc))
+
+    def _set_pocket_mode(self, _index: int) -> None:
+        self.controller.set_pocket_mode(self.pocket.currentData())
 
     def _set_interaction(self, name: str, checked: bool) -> None:
         desired = "on" if checked else "off"
@@ -291,6 +325,11 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         )
 
     def _profiles_changed(self) -> None:
+        pocket_index = self.pocket.findData(self.controller.pocket_mode)
+        if pocket_index >= 0 and pocket_index != self.pocket.currentIndex():
+            self.pocket.blockSignals(True)
+            self.pocket.setCurrentIndex(pocket_index)
+            self.pocket.blockSignals(False)
         current, total = self.controller.current_counts()
         for name in INTERACTION_TYPES:
             checkbox = self.type_checks[name]
@@ -308,7 +347,9 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         profile = self.controller.profiles.get(state)
         if profile is None:
             self.chemistry_status.setText("Hydrogen policy: — (current pose not analyzed)")
-            self.chemistry_status.setToolTip("")
+            self.chemistry_status.setToolTip(
+                "No normalized PLIP profile is loaded for the current ligand state."
+            )
         else:
             policy = (
                 "use explicit input hydrogens"
@@ -318,7 +359,10 @@ class PoseInspectorDialog(QtWidgets.QDialog):
             warning_count = len(profile.get("warnings", ()))
             suffix = f"; {warning_count} diagnostic message(s)" if warning_count else ""
             self.chemistry_status.setText(f"Hydrogen policy: {policy}{suffix}")
-            self.chemistry_status.setToolTip("\n".join(profile.get("warnings", ())))
+            diagnostics = "\n".join(profile.get("warnings", ()))
+            self.chemistry_status.setToolTip(
+                diagnostics or self.chemistry_status.text()
+            )
         if self.controller.failures:
             self.failures_box.setPlainText(
                 "\n".join(
@@ -336,6 +380,7 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         marker = "analyzed" if analyzed else "not analyzed"
         total = self.controller.total_states or self.controller.ligand_info(self.ligand.currentText())[1]
         self.current_pose.setText(f"{state}/{total}: {title} ({marker})")
+        self.current_pose.setToolTip(self.current_pose.text())
         self._profiles_changed()
 
     def _show_settings(self) -> None:

@@ -20,7 +20,14 @@ from .constants import (
 )
 from .exporting import ExportBundle, ExportError, clean_state_title, export_bundle
 from .profiles import interaction_counts
-from .rendering import OverlayRun, delete_run, interaction_enabled, render_profiles
+from .rendering import (
+    OverlayRun,
+    delete_run,
+    interaction_enabled,
+    normalize_pocket_mode,
+    render_pocket,
+    render_profiles,
+)
 
 Signal = getattr(QtCore, "Signal", QtCore.pyqtSignal)
 
@@ -68,7 +75,7 @@ class PoseInspectorController(QtCore.QObject):
         self.active_receptor_state = 1
         self.active_ligand_object = ""
         self.total_states = 0
-        self.pocket_enabled = True
+        self.pocket_mode = "current"
         self.type_preferences = {
             name: name != "hydrophobic_contacts" for name in INTERACTION_TYPES
         }
@@ -79,6 +86,7 @@ class PoseInspectorController(QtCore.QObject):
         self._stderr_buffer = ""
         self._complete_event: dict[str, Any] | None = None
         self._cancelled = False
+        self._requested_pocket_mode = "current"
         self._last_state: int | None = None
         self._last_title = ""
 
@@ -201,7 +209,7 @@ class PoseInspectorController(QtCore.QObject):
         states: Any = "all",
         receptor_state: int = 0,
         filtered: bool = True,
-        pocket: bool = True,
+        pocket: Any = "current",
     ) -> None:
         if self.is_running:
             raise RuntimeError("An analysis is already running")
@@ -238,7 +246,7 @@ class PoseInspectorController(QtCore.QObject):
         self._stderr_buffer = ""
         self._complete_event = None
         self._cancelled = False
-        self.pocket_enabled = bool(pocket)
+        self._requested_pocket_mode = normalize_pocket_mode(pocket)
 
         process = QtCore.QProcess(self)
         self.process = process
@@ -391,8 +399,9 @@ class PoseInspectorController(QtCore.QObject):
             self.active_receptor_state = bundle.receptor_state
             self.active_ligand_object = bundle.ligand_object
             self.total_states = bundle.total_states
+            self.pocket_mode = self._requested_pocket_mode
             self._last_state = None
-            self._update_pocket(force=True)
+            self._render_pocket()
             self.profiles_changed.emit()
             completed = int((self._complete_event or {}).get("completed", len(self._pending_profiles) + len(self._pending_failures)))
             hits = int((self._complete_event or {}).get("cache_hits", 0))
@@ -458,13 +467,14 @@ class PoseInspectorController(QtCore.QObject):
                 pass
         return self.type_preferences[name]
 
-    def set_pocket_enabled(self, enabled: bool) -> None:
-        self.pocket_enabled = bool(enabled)
-        if not enabled and self.run is not None:
-            self.cmd.delete(self.run.pocket_name)
-        elif enabled:
-            self._update_pocket(force=True)
+    def set_pocket_mode(self, mode: Any) -> None:
+        self.pocket_mode = normalize_pocket_mode(mode)
+        self._render_pocket()
         self.profiles_changed.emit()
+
+    def set_pocket_enabled(self, enabled: bool) -> None:
+        """Beta 0.1 API compatibility wrapper."""
+        self.set_pocket_mode("current" if enabled else "off")
 
     def clear(self) -> None:
         delete_run(self.cmd, self.run)
@@ -520,56 +530,23 @@ class PoseInspectorController(QtCore.QObject):
         if not source_exists and self.run is not None:
             title = "Source ligand object was deleted"
             analyzed = False
-            if self.run.pocket_name in self.cmd.get_names("all"):
-                self.cmd.delete(self.run.pocket_name)
         if state != self._last_state or title != self._last_title:
             self._last_state = state
             self._last_title = title
-            if source_exists:
-                self._update_pocket(force=True)
             self.state_changed.emit(state, title, analyzed)
 
-    @staticmethod
-    def _quoted(value: Any) -> str:
-        return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-    def _update_pocket(self, *, force: bool = False) -> None:
-        if not self.pocket_enabled or self.run is None:
+    def _render_pocket(self) -> None:
+        if self.run is None:
             return
-        state = max(1, min(int(self.cmd.get_state()), max(1, self.total_states)))
-        profile = self.profiles.get(state)
-        existing = set(self.cmd.get_names("all"))
-        if self.run.pocket_name in existing:
-            self.cmd.delete(self.run.pocket_name)
-        if not profile or not profile.get("residues"):
-            return
-        clauses = []
-        for residue in profile["residues"]:
-            clauses.append(
-                "(chain {chain} and resi {resi} and resn {resn})".format(
-                    chain=self._quoted(residue.get("chain", "")),
-                    resi=self._quoted(residue.get("resi", "")),
-                    resn=self._quoted(residue.get("resn", "")),
-                )
-            )
-        selection = f"({self.active_receptor_selection}) and ({' or '.join(clauses)})"
         try:
-            self.cmd.create(
-                self.run.pocket_name,
-                selection,
-                self.active_receptor_state,
-                1,
+            render_pocket(
+                self.cmd,
+                run=self.run,
+                receptor_selection=self.active_receptor_selection,
+                receptor_state=self.active_receptor_state,
+                profiles=self.profiles,
+                total_states=self.total_states,
+                mode=self.pocket_mode,
             )
-            if self.cmd.count_atoms(self.run.pocket_name) == 0:
-                self.cmd.delete(self.run.pocket_name)
-                return
-            self.cmd.hide("everything", self.run.pocket_name)
-            self.cmd.show("sticks", self.run.pocket_name)
-            self.cmd.hide("sticks", f"({self.run.pocket_name}) and elem H")
-            try:
-                self.cmd.util.cnc(self.run.pocket_name)
-            except Exception:
-                pass
-            self.cmd.group(self.run.structures_group, self.run.pocket_name)
         except Exception as exc:
             self.status_changed.emit(f"Interaction overlays are ready, but pocket display failed: {exc}")

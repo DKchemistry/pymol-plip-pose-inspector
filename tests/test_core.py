@@ -17,6 +17,7 @@ from pymol_plip.exporting import (
     parse_states,
 )
 from pymol_plip.profiles import empty_profile, validate_profile
+from pymol_plip.rendering import normalize_pocket_mode
 
 
 class CoreTests(unittest.TestCase):
@@ -26,6 +27,15 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(parse_states("1-3,5", current=1, total=5), [1, 2, 3, 5])
         with self.assertRaises(ExportError):
             parse_states("6", current=1, total=5)
+
+    def test_pocket_mode_aliases(self):
+        self.assertEqual(normalize_pocket_mode("current"), "current")
+        self.assertEqual(normalize_pocket_mode(1), "current")
+        self.assertEqual(normalize_pocket_mode("union"), "all")
+        self.assertEqual(normalize_pocket_mode("hidden"), "off")
+        self.assertEqual(normalize_pocket_mode(0), "off")
+        with self.assertRaises(ValueError):
+            normalize_pocket_mode("sometimes")
 
     def test_pymol_sdf_title_cleanup(self):
         self.assertEqual(clean_state_title("ZINC123 none", state=1), "ZINC123")

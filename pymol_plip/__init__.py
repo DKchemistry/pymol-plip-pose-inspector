@@ -1,5 +1,5 @@
 # Name: PLIP Pose Inspector
-# Version: 0.1.0
+# Version: 0.2.0
 # Citation-Required: Yes
 """PyMOL entry point for PLIP Pose Inspector.
 
@@ -60,7 +60,7 @@ def plip_analyze(
     states="all",
     receptor_state=0,
     filtered=1,
-    pocket=1,
+    pocket="current",
 ):
     controller = get_controller()
     return controller.analyze(
@@ -69,7 +69,7 @@ def plip_analyze(
         states=states,
         receptor_state=int(receptor_state),
         filtered=_as_bool(filtered),
-        pocket=_as_bool(pocket),
+        pocket=pocket,
     )
 
 
@@ -79,6 +79,10 @@ def plip_toggle(types="all", enabled="toggle"):
 
 def plip_clear():
     return get_controller().clear()
+
+
+def plip_pocket(mode="current"):
+    return get_controller().set_pocket_mode(mode)
 
 
 def __init_plugin__(app=None):
@@ -91,6 +95,7 @@ def __init_plugin__(app=None):
     cmd.extend("plip_gui", plip_gui)
     cmd.extend("plip_analyze", plip_analyze)
     cmd.extend("plip_toggle", plip_toggle)
+    cmd.extend("plip_pocket", plip_pocket)
     cmd.extend("plip_clear", plip_clear)
     addmenuitemqt("PLIP Pose Inspector", plip_gui)
     _initialized = True
