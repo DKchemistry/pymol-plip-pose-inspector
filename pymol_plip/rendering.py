@@ -1,20 +1,15 @@
-"""State-aligned CGO rendering for normalized PLIP profiles."""
+"""State-aligned native PyMOL rendering for PLIP profiles."""
 
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from pymol.cgo import SAUSAGE
+from .constants import INTERACTION_LABELS, INTERACTION_STYLES, INTERACTION_TYPES
 
-from .constants import (
-    DEFAULT_DASH_RADIUS,
-    INTERACTION_LABELS,
-    INTERACTION_STYLES,
-    INTERACTION_TYPES,
-)
+POCKET_MODES = ("current", "all", "off")
+POCKET_SENTINEL_SEGI = "PPID"
 
 
 def safe_name(value: str, *, fallback: str = "poses") -> str:
@@ -24,88 +19,6 @@ def safe_name(value: str, *, fallback: str = "poses") -> str:
     if value[0].isdigit():
         value = "x_" + value
     return value[:80]
-
-
-def _point_along(
-    start: tuple[float, float, float],
-    unit: tuple[float, float, float],
-    distance: float,
-) -> tuple[float, float, float]:
-    return tuple(start[index] + unit[index] * distance for index in range(3))
-
-
-def rounded_segment(
-    start: Iterable[float],
-    end: Iterable[float],
-    *,
-    color: tuple[float, float, float],
-    radius: float = DEFAULT_DASH_RADIUS,
-) -> list[float]:
-    first = tuple(float(value) for value in start)
-    second = tuple(float(value) for value in end)
-    if math.dist(first, second) < 1e-8:
-        return []
-    return [
-        SAUSAGE,
-        *first,
-        *second,
-        float(radius),
-        *color,
-        *color,
-    ]
-
-
-def dashed_segment(
-    start: Iterable[float],
-    end: Iterable[float],
-    *,
-    color: tuple[float, float, float],
-    dash_length: float,
-    dash_gap: float,
-    radius: float = DEFAULT_DASH_RADIUS,
-) -> list[float]:
-    first = tuple(float(value) for value in start)
-    second = tuple(float(value) for value in end)
-    vector = tuple(second[index] - first[index] for index in range(3))
-    distance = math.sqrt(sum(value * value for value in vector))
-    if distance < 1e-8:
-        return []
-    if dash_length <= 0.0 or dash_gap <= 0.0:
-        return rounded_segment(first, second, color=color, radius=radius)
-
-    unit = tuple(value / distance for value in vector)
-    geometry: list[float] = []
-    position = 0.0
-    while position < distance:
-        segment_end = min(distance, position + dash_length)
-        geometry.extend(
-            rounded_segment(
-                _point_along(first, unit, position),
-                _point_along(first, unit, segment_end),
-                color=color,
-                radius=radius,
-            )
-        )
-        position += dash_length + dash_gap
-    return geometry
-
-
-def profile_cgo(profile: dict[str, Any] | None, interaction_type: str) -> list[float]:
-    if not profile:
-        return []
-    style = INTERACTION_STYLES[interaction_type]
-    geometry: list[float] = []
-    for interaction in profile["interactions"].get(interaction_type, []):
-        geometry.extend(
-            dashed_segment(
-                interaction["start"],
-                interaction["end"],
-                color=style["color"],
-                dash_length=float(style["dash_length"]),
-                dash_gap=float(style["dash_gap"]),
-            )
-        )
-    return geometry
 
 
 @dataclass
@@ -151,6 +64,91 @@ def delete_run(cmd: Any, run: OverlayRun | None) -> None:
             cmd.delete(name)
 
 
+def _temporary_names(cmd: Any) -> tuple[str, str]:
+    return (
+        cmd.get_unused_name("_PLIP_Pose_Inspector_endpoint_A"),
+        cmd.get_unused_name("_PLIP_Pose_Inspector_endpoint_B"),
+    )
+
+
+def _add_measurement(
+    cmd: Any,
+    *,
+    object_name: str,
+    start: Iterable[float],
+    end: Iterable[float],
+    state: int,
+    reset: bool,
+    endpoint_names: tuple[str, str],
+) -> None:
+    first, second = endpoint_names
+    cmd.delete(f"{first} {second}")
+    cmd.pseudoatom(first, pos=tuple(float(value) for value in start), state=state)
+    cmd.pseudoatom(second, pos=tuple(float(value) for value in end), state=state)
+    cmd.distance(
+        object_name,
+        first,
+        second,
+        state=state,
+        label=0,
+        reset=int(reset),
+    )
+
+
+def _render_measurement_object(
+    cmd: Any,
+    *,
+    object_name: str,
+    interaction_type: str,
+    profiles: dict[int, dict[str, Any]],
+    total_states: int,
+) -> None:
+    endpoint_names = _temporary_names(cmd)
+    first_measurement = True
+    try:
+        for state in range(1, total_states + 1):
+            profile = profiles.get(state)
+            edges = () if profile is None else profile["interactions"].get(interaction_type, ())
+            for edge in edges:
+                _add_measurement(
+                    cmd,
+                    object_name=object_name,
+                    start=edge["start"],
+                    end=edge["end"],
+                    state=state,
+                    reset=first_measurement,
+                    endpoint_names=endpoint_names,
+                )
+                first_measurement = False
+
+        # A zero-length measurement is invisible, but forces PyMOL to retain
+        # the final state and all explicit empty states before it.
+        _add_measurement(
+            cmd,
+            object_name=object_name,
+            start=(0.0, 0.0, 0.0),
+            end=(0.0, 0.0, 0.0),
+            state=total_states,
+            reset=first_measurement,
+            endpoint_names=endpoint_names,
+        )
+    finally:
+        cmd.delete(f"{endpoint_names[0]} {endpoint_names[1]}")
+
+    style = INTERACTION_STYLES[interaction_type]
+    cmd.set("dash_color", style["color_name"], object_name)
+    cmd.set("dash_gap", float(style["dash_gap"]), object_name)
+    cmd.set(
+        "dash_length",
+        float(style["dash_length"] if style["dash_length"] > 0 else 0.15),
+        object_name,
+    )
+    # Radius intentionally inherits PyMOL's global setting. This preserves
+    # normal behavior for commands such as: set dash_radius, .09
+    cmd.unset("dash_radius", object_name)
+    cmd.hide("labels", object_name)
+
+
 def render_profiles(
     cmd: Any,
     *,
@@ -160,9 +158,12 @@ def render_profiles(
     previous_run: OverlayRun | None = None,
     enabled_types: set[str] | None = None,
 ) -> OverlayRun:
+    if total_states < 1:
+        raise ValueError("Interaction overlays require at least one state")
     run = make_run(ligand_object)
     delete_run(cmd, previous_run)
     if previous_run is None or previous_run.top_group != run.top_group:
+        # Also replaces namespaced Beta 0.1 CGO objects in place.
         delete_run(cmd, run)
 
     cmd.group(run.top_group, "")
@@ -173,31 +174,20 @@ def render_profiles(
 
     for interaction_type in INTERACTION_TYPES:
         object_name = run.object_names[interaction_type]
-        for state in range(1, total_states + 1):
-            geometry = profile_cgo(profiles.get(state), interaction_type)
-            cmd.load_cgo(geometry, object_name, state=state)
-            count = 0
-            if state in profiles:
-                count = len(
-                    profiles[state]["interactions"].get(interaction_type, ())
-                )
-            try:
-                cmd.set_title(
-                    object_name,
-                    state,
-                    f"{INTERACTION_LABELS[interaction_type]}: {count}",
-                )
-            except Exception:
-                pass
+        _render_measurement_object(
+            cmd,
+            object_name=object_name,
+            interaction_type=interaction_type,
+            profiles=profiles,
+            total_states=total_states,
+        )
         cmd.group(run.interactions_group, object_name)
-        if enabled_types is None:
-            enabled = interaction_type != "hydrophobic_contacts"
-        else:
-            enabled = interaction_type in enabled_types
-        if enabled:
-            cmd.enable(object_name)
-        else:
-            cmd.disable(object_name)
+        enabled = (
+            interaction_type != "hydrophobic_contacts"
+            if enabled_types is None
+            else interaction_type in enabled_types
+        )
+        (cmd.enable if enabled else cmd.disable)(object_name)
 
     return run
 
@@ -205,3 +195,150 @@ def render_profiles(
 def interaction_enabled(cmd: Any, run: OverlayRun, interaction_type: str) -> bool:
     enabled = set(cmd.get_names("all", enabled_only=1))
     return run.object_names[interaction_type] in enabled
+
+
+def normalize_pocket_mode(value: Any) -> str:
+    if isinstance(value, bool):
+        return "current" if value else "off"
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "1": "current",
+        "on": "current",
+        "true": "current",
+        "yes": "current",
+        "current_pose": "current",
+        "dynamic": "current",
+        "union": "all",
+        "all_poses": "all",
+        "all_analyzed": "all",
+        "0": "off",
+        "false": "off",
+        "no": "off",
+        "hidden": "off",
+        "hide": "off",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in POCKET_MODES:
+        raise ValueError("Pocket mode must be current, all, or off")
+    return normalized
+
+
+def _quoted(value: Any) -> str:
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _residue_selection(
+    receptor_selection: str,
+    residues: Iterable[dict[str, Any]],
+) -> str | None:
+    clauses = []
+    for residue in residues:
+        clauses.append(
+            "(chain {chain} and resi {resi} and resn {resn})".format(
+                chain=_quoted(residue.get("chain", "")),
+                resi=_quoted(residue.get("resi", "")),
+                resn=_quoted(residue.get("resn", "")),
+            )
+        )
+    if not clauses:
+        return None
+    return f"({receptor_selection}) and ({' or '.join(clauses)})"
+
+
+def _union_residues(profiles: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    residues: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for profile in profiles.values():
+        for residue in profile.get("residues", ()):
+            key = (
+                str(residue.get("chain", "")),
+                str(residue.get("resi", "")),
+                str(residue.get("resn", "")),
+            )
+            residues[key] = residue
+    return [residues[key] for key in sorted(residues)]
+
+
+def render_pocket(
+    cmd: Any,
+    *,
+    run: OverlayRun,
+    receptor_selection: str,
+    receptor_state: int,
+    profiles: dict[int, dict[str, Any]],
+    total_states: int,
+    mode: str,
+) -> None:
+    mode = normalize_pocket_mode(mode)
+    cmd.delete(run.pocket_name)
+    if mode == "off":
+        return
+    if total_states < 1:
+        raise ValueError("Pocket rendering requires at least one state")
+
+    receptor_model = cmd.get_model(receptor_selection, receptor_state)
+    if not receptor_model.atom:
+        raise ValueError("The active receptor selection is unavailable")
+    anchor = tuple(float(value) for value in receptor_model.atom[0].coord)
+    sentinel = cmd.get_unused_name("_PLIP_Pose_Inspector_pocket_sentinel")
+    cmd.pseudoatom(
+        sentinel,
+        name="DUM",
+        resn="PPI",
+        resi="0",
+        chain="",
+        segi=POCKET_SENTINEL_SEGI,
+        elem="X",
+        pos=anchor,
+        state=receptor_state,
+    )
+    try:
+        if mode == "current":
+            for state in range(1, total_states + 1):
+                profile = profiles.get(state)
+                residues = () if profile is None else profile.get("residues", ())
+                residue_selection = _residue_selection(receptor_selection, residues)
+                selection = (
+                    f"({sentinel}) or ({residue_selection})"
+                    if residue_selection
+                    else sentinel
+                )
+                cmd.create(
+                    run.pocket_name,
+                    selection,
+                    receptor_state,
+                    state,
+                    discrete=1,
+                )
+        else:
+            residue_selection = _residue_selection(
+                receptor_selection,
+                _union_residues(profiles),
+            )
+            selection = (
+                f"({sentinel}) or ({residue_selection})"
+                if residue_selection
+                else sentinel
+            )
+            cmd.create(
+                run.pocket_name,
+                selection,
+                receptor_state,
+                1,
+                discrete=1,
+            )
+            cmd.set("static_singletons", 1, run.pocket_name)
+    finally:
+        cmd.delete(sentinel)
+
+    sentinel_selection = (
+        f"({run.pocket_name}) and segi {_quoted(POCKET_SENTINEL_SEGI)}"
+    )
+    cmd.hide("everything", run.pocket_name)
+    cmd.show("sticks", run.pocket_name)
+    cmd.hide("everything", sentinel_selection)
+    cmd.hide("sticks", f"({run.pocket_name}) and elem H")
+    try:
+        cmd.util.cnc(run.pocket_name)
+    except Exception:
+        pass
+    cmd.group(run.structures_group, run.pocket_name)
