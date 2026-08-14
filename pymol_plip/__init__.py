@@ -5,6 +5,10 @@
 
 Imports are intentionally lazy so the external PLIP worker can import shared
 modules without having PyMOL installed in its environment.
+
+Interaction perception is provided by PLIP. Please cite: Salentin et al.,
+PLIP: fully automated protein-ligand interaction profiler, Nucleic Acids
+Research 43(W1), W443-W447 (2015), doi:10.1093/nar/gkv315.
 """
 
 from __future__ import annotations

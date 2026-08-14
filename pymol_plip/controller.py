@@ -212,10 +212,16 @@ class PoseInspectorController(QtCore.QObject):
         final_receptor = (
             f"({receptor}) and ({DEFAULT_RECEPTOR_FILTER})" if filtered else f"({receptor})"
         )
+        receptor_objects = self.cmd.get_object_list(final_receptor)
+        if not receptor_objects:
+            raise ExportError("Receptor selection does not contain a molecular object")
+        state_count = max(int(self.cmd.count_states(name)) for name in receptor_objects)
         if receptor_state <= 0:
-            receptor_objects = self.cmd.get_object_list(final_receptor)
-            state_count = max((int(self.cmd.count_states(name)) for name in receptor_objects), default=1)
             receptor_state = max(1, min(int(self.cmd.get_state()), state_count))
+        elif receptor_state > state_count:
+            raise ExportError(
+                f"Receptor state {receptor_state} is unavailable; selection has {state_count} state(s)"
+            )
 
         worker = self.worker_python()
         bundle = export_bundle(
