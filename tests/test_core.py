@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+import gzip
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+from pymol_plip.cache import ProfileCache, make_cache_key
+from pymol_plip.constants import INTERACTION_TYPES
+from pymol_plip.exporting import (
+    ExportError,
+    build_ligand_pdb,
+    choose_target,
+    clean_state_title,
+    parse_states,
+)
+from pymol_plip.profiles import empty_profile, validate_profile
+
+
+class CoreTests(unittest.TestCase):
+    def test_parse_states(self):
+        self.assertEqual(parse_states("all", current=3, total=5), [1, 2, 3, 4, 5])
+        self.assertEqual(parse_states("current", current=3, total=5), [3])
+        self.assertEqual(parse_states("1-3,5", current=1, total=5), [1, 2, 3, 5])
+        with self.assertRaises(ExportError):
+            parse_states("6", current=1, total=5)
+
+    def test_pymol_sdf_title_cleanup(self):
+        self.assertEqual(clean_state_title("ZINC123 none", state=1), "ZINC123")
+        self.assertEqual(clean_state_title("none", state=4), "State 4")
+
+    def test_collision_checked_target(self):
+        lines = [
+            "HETATM    1  C1  LIG Z9999       0.000   0.000   0.000  1.00  0.00           C  "
+        ]
+        self.assertEqual(choose_target(lines), ("Y", 9999, "LIG"))
+
+    def test_ligand_serialization_keeps_charge_and_bond_order(self):
+        atoms = [
+            SimpleNamespace(symbol="N", coord=(1, 2, 3), formal_charge=1),
+            SimpleNamespace(symbol="O", coord=(2, 2, 3), formal_charge=-1),
+        ]
+        bonds = [SimpleNamespace(index=(0, 1), order=2)]
+        text = build_ligand_pdb(
+            SimpleNamespace(atom=atoms, bond=bonds),
+            serial_offset=10,
+            chain="Z",
+            resnum=9999,
+        )
+        self.assertIn("1+", text)
+        self.assertIn("1-", text)
+        self.assertIn("CONECT   11   12   12", text)
+        self.assertIn("CONECT   12   11   11", text)
+
+    def test_profile_requires_every_interaction_class(self):
+        profile = empty_profile(
+            title="pose", receptor_hash="r", pose_hash="p", hydrogen_policy="add_missing"
+        )
+        validate_profile(profile)
+        del profile["interactions"][INTERACTION_TYPES[-1]]
+        with self.assertRaises(ValueError):
+            validate_profile(profile)
+
+    def test_cache_round_trip_and_invalidation(self):
+        profile = empty_profile(
+            title="pose", receptor_hash="r", pose_hash="p", hydrogen_policy="add_missing"
+        )
+        engine = {"plip": "3.0.1", "openbabel": "3.2.1", "python": "3.14.0"}
+        job = {
+            "receptor_hash": "r",
+            "pose_hash": "p",
+            "hydrogen_policy": "add_missing",
+            "target": "LIG:Z:9999",
+            "analysis_options": {"filter": "polymer.protein"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ProfileCache(directory)
+            key = make_cache_key(job, engine)
+            cache.store(key, profile)
+            self.assertEqual(cache.load(key), profile)
+            changed = dict(job, pose_hash="different")
+            self.assertNotEqual(key, make_cache_key(changed, engine))
+
+            path = cache.path_for(key)
+            with gzip.open(path, "rt", encoding="utf-8") as handle:
+                envelope = json.load(handle)
+            envelope["key"] = "tampered"
+            with gzip.open(path, "wt", encoding="utf-8") as handle:
+                json.dump(envelope, handle)
+            self.assertIsNone(cache.load(key))
+
+
+if __name__ == "__main__":
+    unittest.main()
