@@ -1,0 +1,10 @@
+name: pymol-plip-plugin
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14
+  - pip
+  - pip:
+      - openbabel==3.2.1
+      - plip==3.0.1
+
