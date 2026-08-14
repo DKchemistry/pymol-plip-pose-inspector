@@ -1,5 +1,5 @@
 # Name: PLIP Pose Inspector
-# Version: 0.2.0
+# Version: 0.3.0
 # Citation: Adasme et al. (2021), doi:10.1093/nar/gkab294; Salentin et al. (2015), doi:10.1093/nar/gkv315
 """PyMOL entry point for PLIP Pose Inspector.
 

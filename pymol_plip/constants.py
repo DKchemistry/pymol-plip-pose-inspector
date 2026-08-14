@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 PLUGIN_NAME = "PLIP Pose Inspector"
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.3.0"
 PROFILE_SCHEMA_VERSION = 2
 CACHE_SCHEMA_VERSION = 1
 EXPORT_SCHEMA_VERSION = 1

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 2026-08-14
+
+- Prebuilt current-pose and all-analyzed pocket objects and changed modes using
+  visibility only, eliminating recomputation after PSE reopening.
+- Added saved-session discovery, attachment, hidden-mode persistence, and
+  no-PLIP migration of Beta 0.2 pockets.
+- Added per-class RGB colors, line-pattern presets, custom dash length/gap,
+  project-local application, and persistent personal defaults.
+- Added visible per-pose diagnostics and an automatic hydrogen-policy
+  explanation.
+- Replaced PyMOL's broken Pmw citation prompt with a first-use Qt dialog and
+  permanent Citation action.
+- Reorganized all CAU and EP4 reference material under `fixtures/`.
+- Verified five and 118 poses, PSE persistence, appearance, cancellation, and
+  CAU in PyMOL 2.5 and 3.1.
+
 ## 0.2.0 — 2026-08-14
 
 - Replaced fixed-radius CGO contacts with state-aligned native PyMOL

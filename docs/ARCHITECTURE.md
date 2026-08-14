@@ -86,16 +86,26 @@ synchronize geometry natively without analysis or redraw callbacks.
 Measurements use PLIP's established colors and class-specific dash length/gap
 patterns. Their `dash_radius` object setting is deliberately unset, so they
 inherit the user's global PyMOL setting like any user-created measurement.
+Validated per-class appearance defaults are stored separately in `QSettings`;
+applying them changes only native object settings and never interaction
+geometry or cache keys.
 
 All names begin with `PLIP_Pose_Inspector_` and live under a run group with
 `Interactions` and `Structures` subgroups. Only these names are ever deleted.
-The pocket is a discrete molecular object. In `current` mode each state holds
-exactly that profile's receptor residues plus a hidden sentinel atom; the
-sentinel retains explicit empty and trailing states. In `all` mode a static
-one-state object holds the deduplicated residue union. `off` removes only the
-plugin-owned pocket. These objects survive a PSE round-trip without a live
-controller, and the original receptor and ligand representations remain
-unchanged.
+Two pocket objects are materialized after analysis. `..._Pocket` is discrete:
+each state holds exactly that profile's receptor residues plus a hidden
+sentinel atom, which retains explicit empty and trailing states.
+`..._Pocket_All` is a static one-state deduplicated residue union. Pocket mode
+only enables one or disables both; geometry is never deleted or rebuilt during
+switching. A fresh controller discovers namespaced measurement objects,
+reattaches by ligand, infers mode from enablement, and can migrate a Beta 0.2
+current-only pocket to a union using its residue identities and the selected
+receptor—without PLIP.
+
+Normalized profiles are intentionally not embedded in PSE files. Reattached
+sessions retain geometry, interaction visibility, pocket modes, and appearance
+settings, while counts, hydrogen policy, and diagnostic text are reported as
+unavailable.
 
 The 175 ms state watcher updates only dialog text and counts. It never rebuilds
 or deletes molecular geometry. Closing the dialog does not destroy the

@@ -33,10 +33,6 @@ def main() -> None:
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     controller = PoseInspectorController(cmd)
-    controller.active_receptor_selection = "(EP4_receptor) and (polymer.protein or solvent or inorganic)"
-    controller.active_receptor_state = 1
-    controller.active_ligand_object = "EP4_poses"
-    controller.total_states = 5
     counts = {
         1: {"hydrogen_bonds": 2, "hydrophobic_contacts": 5, "salt_bridges": 1},
         2: {"hydrogen_bonds": 2, "hydrophobic_contacts": 4, "halogen_bonds": 1, "salt_bridges": 1},
@@ -57,17 +53,27 @@ def main() -> None:
             profile["interactions"][interaction_type] = [dict(edge) for _ in range(count)]
         profiles[state] = profile
     profiles[2]["warnings"] = ["Demo profile status"]
-    controller.profiles = profiles
-    controller.engine = {"plip": "3.0.1", "openbabel": "3.2.1", "python": "3.14.6"}
-
     dialog = PoseInspectorDialog(controller)
     dialog.receptor.setEditText("EP4_receptor")
     dialog.ligand.setEditText("EP4_poses")
+    controller.active_receptor_selection = "(EP4_receptor) and (polymer.protein or solvent or inorganic)"
+    controller.active_receptor_state = 1
+    controller.active_ligand_object = "EP4_poses"
+    controller.total_states = 5
+    controller.profiles = profiles
+    controller.session_attached = False
+    controller.engine = {"plip": "3.0.1", "openbabel": "3.2.1", "python": "3.14.6"}
     dialog._profiles_changed()
     dialog.status.setText("Ready: 5/5 poses analyzed; 5 cache hits, 0 misses")
     dialog.show()
     app.processEvents()
     dialog.grab().save(str(ROOT / "docs" / "PLIP_Pose_Inspector_GUI.png"))
+    dialog._show_appearance()
+    app.processEvents()
+    dialog._appearance_dialog.grab().save(
+        str(ROOT / "docs" / "PLIP_Interaction_Appearance.png")
+    )
+    dialog._appearance_dialog.hide()
     controller.state_timer.stop()
     dialog.hide()
 
