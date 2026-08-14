@@ -22,8 +22,12 @@ def main() -> int:
     cache_directory = tempfile.TemporaryDirectory(prefix="plip-cancel-cache-")
     os.environ["PYMOL_PLIP_CACHE"] = cache_directory.name
     cmd.reinitialize()
-    cmd.load(str(ROOT / "ep4r_rec.crg.pdb"), "EP4_receptor")
-    cmd.load(str(ROOT / "ep4r_matched_poses.sdf"), "EP4_poses", discrete=1)
+    cmd.load(str(ROOT / "fixtures" / "ep4" / "ep4r_rec.crg.pdb"), "EP4_receptor")
+    cmd.load(
+        str(ROOT / "fixtures" / "ep4" / "ep4r_matched_poses.sdf"),
+        "EP4_poses",
+        discrete=1,
+    )
 
     app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
     controller = PoseInspectorController(cmd)

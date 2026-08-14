@@ -7,6 +7,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from pymol_plip.appearance import (
+    clear_saved_appearance,
+    load_saved_appearance,
+    plip_appearance,
+    save_appearance,
+    validate_appearance,
+)
 from pymol_plip.cache import ProfileCache, make_cache_key
 from pymol_plip.constants import INTERACTION_TYPES
 from pymol_plip.exporting import (
@@ -21,6 +28,19 @@ from pymol_plip.rendering import normalize_pocket_mode
 
 
 class CoreTests(unittest.TestCase):
+    class Settings:
+        def __init__(self):
+            self.values = {}
+
+        def value(self, key, default=""):
+            return self.values.get(key, default)
+
+        def setValue(self, key, value):
+            self.values[key] = value
+
+        def remove(self, key):
+            self.values.pop(key, None)
+
     def test_parse_states(self):
         self.assertEqual(parse_states("all", current=3, total=5), [1, 2, 3, 4, 5])
         self.assertEqual(parse_states("current", current=3, total=5), [3])
@@ -36,6 +56,31 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(normalize_pocket_mode(0), "off")
         with self.assertRaises(ValueError):
             normalize_pocket_mode("sometimes")
+
+    def test_appearance_preferences_round_trip_and_restore(self):
+        settings = self.Settings()
+        styles = plip_appearance()
+        styles["hydrogen_bonds"].update(
+            color=[1.0, 1.0, 0.0],
+            pattern="dashed",
+            dash_length=0.15,
+            dash_gap=0.50,
+        )
+        saved = save_appearance(settings, styles)
+        self.assertEqual(load_saved_appearance(settings), saved)
+        clear_saved_appearance(settings)
+        self.assertEqual(load_saved_appearance(settings), plip_appearance())
+        invalid = plip_appearance()
+        invalid["hydrogen_bonds"]["color"] = [2.0, 0.0, 0.0]
+        with self.assertRaises(ValueError):
+            validate_appearance(invalid)
+
+    def test_plugin_metadata_uses_qt_citation_instead_of_legacy_prompt(self):
+        header = (Path(__file__).resolve().parent.parent / "pymol_plip" / "__init__.py").read_text(
+            encoding="utf-8"
+        ).split('"""', 1)[0]
+        self.assertIn("# Citation:", header)
+        self.assertNotIn("Citation-Required", header)
 
     def test_pymol_sdf_title_cleanup(self):
         self.assertEqual(clean_state_title("ZINC123 none", state=1), "ZINC123")

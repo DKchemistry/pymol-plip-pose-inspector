@@ -1,6 +1,6 @@
 # Name: PLIP Pose Inspector
 # Version: 0.2.0
-# Citation-Required: Yes
+# Citation: Adasme et al. (2021), doi:10.1093/nar/gkab294; Salentin et al. (2015), doi:10.1093/nar/gkv315
 """PyMOL entry point for PLIP Pose Inspector.
 
 Imports are intentionally lazy so the external PLIP worker can import shared
@@ -51,6 +51,9 @@ def plip_gui():
     _dialog.show()
     _dialog.raise_()
     _dialog.activateWindow()
+    from pymol.Qt import QtCore
+
+    QtCore.QTimer.singleShot(0, _dialog.show_citation_once)
     return _dialog
 
 
@@ -81,8 +84,8 @@ def plip_clear():
     return get_controller().clear()
 
 
-def plip_pocket(mode="current"):
-    return get_controller().set_pocket_mode(mode)
+def plip_pocket(mode="current", ligand=""):
+    return get_controller().set_pocket_mode(mode, str(ligand))
 
 
 def __init_plugin__(app=None):

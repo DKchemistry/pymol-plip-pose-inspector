@@ -10,11 +10,12 @@ from rdkit import Chem
 # Configuration
 # ---------------------------------------------------------------------
 
-BASE_DIR = Path("/Users/lkv206/work/plip_plugin")
+ROOT = Path(__file__).resolve().parent.parent
+FIXTURE_DIR = ROOT / "fixtures" / "ep4"
 
-RECEPTOR_FILE = BASE_DIR / "ep4r_rec.crg.pdb"
-LIGAND_FILE = BASE_DIR / "ep4r_matched_poses.sdf"
-OUTPUT_DIR = BASE_DIR / "examples"
+RECEPTOR_FILE = FIXTURE_DIR / "ep4r_rec.crg.pdb"
+LIGAND_FILE = FIXTURE_DIR / "ep4r_matched_poses.sdf"
+OUTPUT_DIR = FIXTURE_DIR / "webserver"
 
 N_LIGANDS = 5
 

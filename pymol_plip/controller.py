@@ -11,6 +11,14 @@ from typing import Any
 
 from pymol.Qt import QtCore
 
+from .appearance import (
+    apply_appearance,
+    clear_saved_appearance,
+    load_saved_appearance,
+    plip_appearance,
+    read_appearance,
+    save_appearance,
+)
 from .cache import ProfileCache, default_cache_dir
 from .constants import (
     DEFAULT_RECEPTOR_FILTER,
@@ -23,10 +31,15 @@ from .profiles import interaction_counts
 from .rendering import (
     OverlayRun,
     delete_run,
+    detect_pocket_mode,
+    ensure_all_pocket,
     interaction_enabled,
+    make_run,
     normalize_pocket_mode,
-    render_pocket,
+    render_pockets,
     render_profiles,
+    safe_name,
+    set_pocket_visibility,
 )
 
 Signal = getattr(QtCore, "Signal", QtCore.pyqtSignal)
@@ -76,6 +89,7 @@ class PoseInspectorController(QtCore.QObject):
         self.active_ligand_object = ""
         self.total_states = 0
         self.pocket_mode = "current"
+        self.session_attached = False
         self.type_preferences = {
             name: name != "hydrophobic_contacts" for name in INTERACTION_TYPES
         }
@@ -173,6 +187,8 @@ class PoseInspectorController(QtCore.QObject):
         result: list[dict[str, Any]] = []
         for name in self.cmd.get_names("objects"):
             try:
+                if name.startswith("PLIP_Pose_Inspector_"):
+                    continue
                 if self.cmd.get_type(name) != "object:molecule":
                     continue
                 result.append(
@@ -393,6 +409,11 @@ class PoseInspectorController(QtCore.QObject):
                 previous_run=self.run,
                 enabled_types=enabled_types,
             )
+            apply_appearance(
+                self.cmd,
+                self.run,
+                load_saved_appearance(self.settings),
+            )
             self.profiles = profiles
             self.failures = failures
             self.active_receptor_selection = bundle.receptor_selection
@@ -400,8 +421,17 @@ class PoseInspectorController(QtCore.QObject):
             self.active_ligand_object = bundle.ligand_object
             self.total_states = bundle.total_states
             self.pocket_mode = self._requested_pocket_mode
+            self.session_attached = False
             self._last_state = None
-            self._render_pocket()
+            render_pockets(
+                self.cmd,
+                run=self.run,
+                receptor_selection=self.active_receptor_selection,
+                receptor_state=self.active_receptor_state,
+                profiles=self.profiles,
+                total_states=self.total_states,
+                mode=self.pocket_mode,
+            )
             self.profiles_changed.emit()
             completed = int((self._complete_event or {}).get("completed", len(self._pending_profiles) + len(self._pending_failures)))
             hits = int((self._complete_event or {}).get("cache_hits", 0))
@@ -443,6 +473,8 @@ class PoseInspectorController(QtCore.QObject):
         return resolved
 
     def toggle(self, *, types: str = "all", enabled: str = "toggle") -> None:
+        if self.run is None:
+            self._attach_only_existing_run()
         targets = self._resolve_types(types)
         mode = enabled.strip().lower()
         if mode not in {"toggle", "on", "off", "1", "0", "true", "false", "yes", "no"}:
@@ -467,9 +499,21 @@ class PoseInspectorController(QtCore.QObject):
                 pass
         return self.type_preferences[name]
 
-    def set_pocket_mode(self, mode: Any) -> None:
+    def set_pocket_mode(self, mode: Any, ligand: str = "") -> None:
         self.pocket_mode = normalize_pocket_mode(mode)
-        self._render_pocket()
+        if ligand:
+            self.attach_existing_run(ligand)
+        elif self.run is None:
+            self._attach_only_existing_run()
+        if self.run is not None:
+            if self.pocket_mode == "all":
+                ensure_all_pocket(
+                    self.cmd,
+                    run=self.run,
+                    receptor_selection=self.active_receptor_selection,
+                    receptor_state=self.active_receptor_state,
+                )
+            set_pocket_visibility(self.cmd, self.run, self.pocket_mode)
         self.profiles_changed.emit()
 
     def set_pocket_enabled(self, enabled: bool) -> None:
@@ -477,13 +521,16 @@ class PoseInspectorController(QtCore.QObject):
         self.set_pocket_mode("current" if enabled else "off")
 
     def clear(self) -> None:
-        delete_run(self.cmd, self.run)
+        runs = [self.run] if self.run is not None else self.discover_existing_runs()
+        for run in runs:
+            delete_run(self.cmd, run)
         self.run = None
         self.profiles = {}
         self.failures = {}
         self.active_receptor_selection = ""
         self.active_ligand_object = ""
         self.total_states = 0
+        self.session_attached = False
         self._last_state = None
         self.status_changed.emit("Plugin-owned overlays cleared.")
         self.profiles_changed.emit()
@@ -495,6 +542,49 @@ class PoseInspectorController(QtCore.QObject):
 
     def clear_cache(self) -> None:
         ProfileCache().clear()
+
+    def current_appearance(self) -> dict[str, dict[str, Any]]:
+        if self.run is None:
+            try:
+                self._attach_only_existing_run()
+            except ValueError:
+                pass
+        if self.run is not None:
+            return read_appearance(self.cmd, self.run)
+        return load_saved_appearance(self.settings)
+
+    def apply_interaction_appearance(
+        self,
+        styles: Any,
+        *,
+        save_as_defaults: bool = False,
+    ) -> None:
+        if self.run is None:
+            try:
+                self._attach_only_existing_run()
+            except ValueError:
+                pass
+        if self.run is not None:
+            apply_appearance(self.cmd, self.run, styles)
+        elif not save_as_defaults:
+            raise ValueError("No PLIP interaction overlay is selected")
+        if save_as_defaults:
+            save_appearance(self.settings, styles)
+        self.profiles_changed.emit()
+
+    def restore_plip_appearance(self) -> dict[str, dict[str, Any]]:
+        styles = plip_appearance()
+        clear_saved_appearance(self.settings)
+        if self.run is not None:
+            apply_appearance(self.cmd, self.run, styles)
+        self.profiles_changed.emit()
+        return styles
+
+    def set_global_dash_radius(self, radius: float) -> None:
+        radius = float(radius)
+        if radius <= 0.0:
+            raise ValueError("Dash radius must be greater than zero")
+        self.cmd.set("dash_radius", radius)
 
     def current_counts(self) -> tuple[dict[str, int], dict[str, int]]:
         current = max(1, int(self.cmd.get_state()))
@@ -535,18 +625,118 @@ class PoseInspectorController(QtCore.QObject):
             self._last_title = title
             self.state_changed.emit(state, title, analyzed)
 
-    def _render_pocket(self) -> None:
-        if self.run is None:
-            return
-        try:
-            render_pocket(
+    def discover_existing_runs(self) -> list[OverlayRun]:
+        existing = set(self.cmd.get_names("all"))
+        prefix = "PLIP_Pose_Inspector_"
+        runs: list[OverlayRun] = []
+        for name in sorted(existing):
+            if not name.startswith(prefix) or "." in name:
+                continue
+            try:
+                if self.cmd.get_type(name) != "object:group":
+                    continue
+            except Exception:
+                continue
+            run = make_run(name[len(prefix) :])
+            if any(object_name in existing for object_name in run.object_names.values()):
+                runs.append(run)
+        return runs
+
+    def _attach_only_existing_run(self) -> bool:
+        runs = self.discover_existing_runs()
+        if len(runs) != 1:
+            if len(runs) > 1:
+                raise ValueError(
+                    "Multiple PLIP overlays are loaded; select a ligand in the GUI or pass ligand=..."
+                )
+            return False
+        run = runs[0]
+        ligand = next(
+            (
+                name
+                for name in self.cmd.get_names("objects")
+                if not name.startswith("PLIP_Pose_Inspector_")
+                and safe_name(name) == run.run_name
+            ),
+            run.run_name,
+        )
+        return self.attach_existing_run(ligand, run=run)
+
+    def attach_existing_run(
+        self,
+        ligand: str,
+        receptor_selection: str = "",
+        *,
+        run: OverlayRun | None = None,
+    ) -> bool:
+        ligand = ligand.strip()
+        if run is None:
+            try:
+                objects = self.cmd.get_object_list(f"({ligand})")
+                ligand_object = objects[0] if len(objects) == 1 else ligand
+            except Exception:
+                ligand_object = ligand
+            run = make_run(ligand_object)
+        else:
+            ligand_object = ligand
+        existing = set(self.cmd.get_names("all"))
+        if not any(name in existing for name in run.object_names.values()):
+            return False
+
+        same_live_run = (
+            self.run is not None
+            and self.run.top_group == run.top_group
+            and bool(self.profiles)
+            and not self.session_attached
+        )
+        self.run = run
+        self.active_ligand_object = ligand_object
+        if ligand_object in self.cmd.get_names("objects"):
+            self.total_states = int(self.cmd.count_states(ligand_object))
+        else:
+            self.total_states = max(
+                [int(self.cmd.count_states(name)) for name in run.object_names.values() if name in existing]
+                or [0]
+            )
+        if receptor_selection and (not same_live_run or not self.active_receptor_selection):
+            self.active_receptor_selection = receptor_selection
+            try:
+                receptor_objects = self.cmd.get_object_list(f"({receptor_selection})")
+                receptor_states = max(
+                    [int(self.cmd.count_states(name)) for name in receptor_objects]
+                    or [1]
+                )
+                self.active_receptor_state = max(
+                    1, min(int(self.cmd.get_state()), receptor_states)
+                )
+            except Exception:
+                self.active_receptor_state = 1
+        if not same_live_run:
+            self.profiles = {}
+            self.failures = {}
+            self.engine = {}
+            self.session_attached = True
+
+        if run.pocket_name in existing and run.pocket_all_name not in existing:
+            ensure_all_pocket(
                 self.cmd,
-                run=self.run,
+                run=run,
                 receptor_selection=self.active_receptor_selection,
                 receptor_state=self.active_receptor_state,
-                profiles=self.profiles,
-                total_states=self.total_states,
-                mode=self.pocket_mode,
             )
-        except Exception as exc:
-            self.status_changed.emit(f"Interaction overlays are ready, but pocket display failed: {exc}")
+        self.pocket_mode = detect_pocket_mode(self.cmd, run)
+        try:
+            set_pocket_visibility(self.cmd, run, self.pocket_mode)
+        except ValueError:
+            pass
+        for name in INTERACTION_TYPES:
+            object_name = run.object_names[name]
+            if object_name in existing:
+                self.type_preferences[name] = interaction_enabled(self.cmd, run, name)
+        self._last_state = None
+        if self.session_attached:
+            self.status_changed.emit(
+                "Attached to saved PLIP overlays; display controls are available without reanalysis."
+            )
+        self.profiles_changed.emit()
+        return True

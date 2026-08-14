@@ -48,7 +48,7 @@ choices are accepted.
 ## Gate 3 — CAU/2RH1 visual comparison
 
 Internal analysis passes; final presentation feedback remains pending Gate 2.
-Against `2RH1_CAU_A_408.pse`, live PLIP 3.0.1 found seven hydrophobic contacts,
+Against `fixtures/2rh1/2RH1_CAU_A_408.pse`, live PLIP 3.0.1 found seven hydrophobic contacts,
 three hydrogen bonds, and one T-shaped pi stack. The PLIP 2.4 XML contains the
 same hydrophobic and pi-stacking counts and four hydrogen bonds. This expected
 modern-engine/loaded-chemistry difference is not treated as a failure.

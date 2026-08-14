@@ -73,10 +73,44 @@ class RenderingTests(unittest.TestCase):
         self.assertAlmostEqual(float(cmd.get("dash_radius", plugin_measurement)), 0.09)
         self.assertAlmostEqual(float(cmd.get("dash_radius", "user_measurement")), 0.09)
 
-    def test_pocket_modes_are_state_aligned_and_do_not_touch_receptor(self):
-        from pymol_plip.rendering import POCKET_SENTINEL_SEGI, render_pocket, render_profiles
+    def test_custom_appearance_persists_in_pse(self):
+        from pymol_plip.appearance import apply_appearance, plip_appearance
+        from pymol_plip.rendering import render_profiles
 
-        cmd.load(str(ROOT / "ep4r_rec.crg.pdb"), "receptor")
+        run = render_profiles(cmd, ligand_object="test", profiles={}, total_states=2)
+        styles = plip_appearance()
+        styles["hydrogen_bonds"].update(
+            color=[1.0, 1.0, 0.0],
+            pattern="dashed",
+            dash_length=0.15,
+            dash_gap=0.50,
+        )
+        apply_appearance(cmd, run, styles)
+        object_name = run.object_names["hydrogen_bonds"]
+        self.assertAlmostEqual(float(cmd.get("dash_gap", object_name)), 0.50)
+        self.assertEqual(
+            tuple(round(value, 5) for value in cmd.get_color_tuple(cmd.get("dash_color", object_name))),
+            (1.0, 1.0, 0.0),
+        )
+        with tempfile.NamedTemporaryFile(suffix=".pse") as handle:
+            cmd.save(handle.name)
+            cmd.reinitialize()
+            cmd.load(handle.name)
+        self.assertAlmostEqual(float(cmd.get("dash_gap", object_name)), 0.50)
+        self.assertEqual(
+            tuple(round(value, 5) for value in cmd.get_color_tuple(cmd.get("dash_color", object_name))),
+            (1.0, 1.0, 0.0),
+        )
+
+    def test_pocket_modes_are_state_aligned_and_do_not_touch_receptor(self):
+        from pymol_plip.rendering import (
+            POCKET_SENTINEL_SEGI,
+            render_pockets,
+            render_profiles,
+            set_pocket_visibility,
+        )
+
+        cmd.load(str(ROOT / "fixtures" / "ep4" / "ep4r_rec.crg.pdb"), "receptor")
         cmd.show("sticks", "receptor and chain A and resi 113")
         source_reps = []
         cmd.iterate(
@@ -89,7 +123,7 @@ class RenderingTests(unittest.TestCase):
             2: profile("two", [{"chain": "A", "resi": "76", "resn": "THR"}]),
         }
         run = render_profiles(cmd, ligand_object="test", profiles=profiles, total_states=5)
-        render_pocket(
+        render_pockets(
             cmd,
             run=run,
             receptor_selection="receptor",
@@ -99,6 +133,7 @@ class RenderingTests(unittest.TestCase):
             mode="current",
         )
         self.assertEqual(cmd.count_states(run.pocket_name), 5)
+        self.assertEqual(cmd.count_states(run.pocket_all_name), 1)
         self.assertEqual(
             self._pocket_residues(run.pocket_name, 1, POCKET_SENTINEL_SEGI),
             {("A", "113", "MET")},
@@ -112,18 +147,9 @@ class RenderingTests(unittest.TestCase):
             set(),
         )
 
-        render_pocket(
-            cmd,
-            run=run,
-            receptor_selection="receptor",
-            receptor_state=1,
-            profiles=profiles,
-            total_states=5,
-            mode="all",
-        )
-        self.assertEqual(cmd.count_states(run.pocket_name), 1)
+        set_pocket_visibility(cmd, run, "all")
         self.assertEqual(
-            self._pocket_residues(run.pocket_name, 1, POCKET_SENTINEL_SEGI),
+            self._pocket_residues(run.pocket_all_name, 1, POCKET_SENTINEL_SEGI),
             {("A", "113", "MET"), ("A", "76", "THR")},
         )
         final_reps = []
@@ -134,26 +160,22 @@ class RenderingTests(unittest.TestCase):
         )
         self.assertEqual(final_reps, source_reps)
 
-        render_pocket(
-            cmd,
-            run=run,
-            receptor_selection="receptor",
-            receptor_state=1,
-            profiles=profiles,
-            total_states=5,
-            mode="off",
-        )
-        self.assertNotIn(run.pocket_name, cmd.get_names("all"))
+        set_pocket_visibility(cmd, run, "off")
+        enabled = set(cmd.get_names("all", enabled_only=1))
+        self.assertNotIn(run.pocket_name, enabled)
+        self.assertNotIn(run.pocket_all_name, enabled)
+        self.assertIn(run.pocket_name, cmd.get_names("all"))
+        self.assertIn(run.pocket_all_name, cmd.get_names("all"))
 
     def test_overlay_and_pocket_survive_pse_round_trip(self):
-        from pymol_plip.rendering import POCKET_SENTINEL_SEGI, render_pocket, render_profiles
+        from pymol_plip.rendering import POCKET_SENTINEL_SEGI, render_pockets, render_profiles
 
-        cmd.load(str(ROOT / "ep4r_rec.crg.pdb"), "receptor")
+        cmd.load(str(ROOT / "fixtures" / "ep4" / "ep4r_rec.crg.pdb"), "receptor")
         profiles = {
             2: profile("two", [{"chain": "A", "resi": "76", "resn": "THR"}]),
         }
         run = render_profiles(cmd, ligand_object="test", profiles=profiles, total_states=3)
-        render_pocket(
+        render_pockets(
             cmd,
             run=run,
             receptor_selection="receptor",
@@ -169,9 +191,47 @@ class RenderingTests(unittest.TestCase):
         for object_name in run.object_names.values():
             self.assertEqual(cmd.count_states(object_name), 3)
         self.assertEqual(cmd.count_states(run.pocket_name), 3)
+        self.assertEqual(cmd.count_states(run.pocket_all_name), 1)
         self.assertEqual(
             self._pocket_residues(run.pocket_name, 2, POCKET_SENTINEL_SEGI),
             {("A", "76", "THR")},
+        )
+
+    def test_beta_02_pocket_migrates_without_profiles_or_plip(self):
+        from pymol_plip.rendering import (
+            POCKET_SENTINEL_SEGI,
+            ensure_all_pocket,
+            render_pockets,
+            render_profiles,
+        )
+
+        cmd.load(str(ROOT / "fixtures" / "ep4" / "ep4r_rec.crg.pdb"), "receptor")
+        profiles = {
+            1: profile("one", [{"chain": "A", "resi": "113", "resn": "MET"}]),
+            2: profile("two", [{"chain": "A", "resi": "76", "resn": "THR"}]),
+        }
+        run = render_profiles(cmd, ligand_object="test", profiles=profiles, total_states=3)
+        render_pockets(
+            cmd,
+            run=run,
+            receptor_selection="receptor",
+            receptor_state=1,
+            profiles=profiles,
+            total_states=3,
+            mode="current",
+        )
+        cmd.delete(run.pocket_all_name)
+        self.assertTrue(
+            ensure_all_pocket(
+                cmd,
+                run=run,
+                receptor_selection="receptor",
+                receptor_state=1,
+            )
+        )
+        self.assertEqual(
+            self._pocket_residues(run.pocket_all_name, 1, POCKET_SENTINEL_SEGI),
+            {("A", "113", "MET"), ("A", "76", "THR")},
         )
 
     @staticmethod

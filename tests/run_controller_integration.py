@@ -62,7 +62,7 @@ def main() -> int:
     parser.add_argument(
         "--ligands",
         type=Path,
-        default=ROOT / "examples" / "ep4r_matched_poses_first5.sdf",
+        default=ROOT / "fixtures" / "ep4" / "ep4r_matched_poses_first5.sdf",
     )
     parser.add_argument("--expected-states", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=300)
@@ -72,7 +72,7 @@ def main() -> int:
     os.environ["PYMOL_PLIP_CACHE"] = cache_directory.name
 
     cmd.reinitialize()
-    cmd.load(str(ROOT / "ep4r_rec.crg.pdb"), "EP4_receptor")
+    cmd.load(str(ROOT / "fixtures" / "ep4" / "ep4r_rec.crg.pdb"), "EP4_receptor")
     cmd.load(
         str(args.ligands),
         "EP4_poses",
@@ -208,13 +208,21 @@ def main() -> int:
             *(profile_residues(profile) for profile in controller.profiles.values())
         )
         controller.set_pocket_mode("all")
-        if cmd.count_states(pocket_name) != 1 or pocket_residues(pocket_name, 1) != expected_union:
+        if (
+            cmd.count_states(controller.run.pocket_all_name) != 1
+            or pocket_residues(controller.run.pocket_all_name, 1) != expected_union
+        ):
             phase["failed"] = "all-analyzed pocket is not the exact residue union"
             app.exit(5)
             return
         controller.set_pocket_mode("off")
-        if pocket_name in cmd.get_names("all"):
-            phase["failed"] = "hidden pocket mode did not remove only the plugin pocket"
+        enabled = set(cmd.get_names("all", enabled_only=1))
+        if pocket_name in enabled or controller.run.pocket_all_name in enabled:
+            phase["failed"] = "hidden pocket mode did not disable both persistent pockets"
+            app.exit(5)
+            return
+        if pocket_name not in cmd.get_names("all") or controller.run.pocket_all_name not in cmd.get_names("all"):
+            phase["failed"] = "hidden pocket mode deleted persistent pocket geometry"
             app.exit(5)
             return
         controller.set_pocket_mode("current")
@@ -278,6 +286,7 @@ def main() -> int:
         cmd.save(str(args.output))
         object_names = dict(controller.run.object_names)
         pocket_name = controller.run.pocket_name
+        pocket_all_name = controller.run.pocket_all_name
         cmd.reinitialize()
         cmd.load(str(args.output))
         if any(cmd.count_states(name) != args.expected_states for name in object_names.values()):
@@ -288,6 +297,10 @@ def main() -> int:
             phase["failed"] = "pocket state alignment did not survive PSE reload"
             app.exit(8)
             return
+        if cmd.count_states(pocket_all_name) != 1:
+            phase["failed"] = "union pocket did not survive PSE reload"
+            app.exit(8)
+            return
         if abs(float(cmd.get("dash_radius")) - 0.09) > 1e-6:
             phase["failed"] = "beta PSE did not retain the 0.09 global dash radius"
             app.exit(8)
@@ -296,6 +309,66 @@ def main() -> int:
             phase["failed"] = "state 2 THR A/76 pocket did not survive PSE reload"
             app.exit(8)
             return
+        attached = PoseInspectorController(cmd)
+        if not attached.attach_existing_run("EP4_poses", "EP4_receptor"):
+            phase["failed"] = "fresh controller could not attach to saved overlays"
+            app.exit(8)
+            return
+        if attached.process is not None or attached.pocket_mode != "current":
+            phase["failed"] = "saved overlay attachment unexpectedly started analysis"
+            app.exit(8)
+            return
+        attached.set_pocket_mode("all")
+        if pocket_all_name not in cmd.get_names("all", enabled_only=1):
+            phase["failed"] = "attached session could not show union pocket without PLIP"
+            app.exit(8)
+            return
+        attached.set_pocket_mode("off")
+        with tempfile.NamedTemporaryFile(suffix=".pse") as hidden:
+            cmd.save(hidden.name)
+            cmd.reinitialize()
+            cmd.load(hidden.name)
+        hidden_controller = PoseInspectorController(cmd)
+        hidden_controller.attach_existing_run("EP4_poses", "EP4_receptor")
+        if hidden_controller.pocket_mode != "off":
+            phase["failed"] = "hidden pocket mode did not survive PSE reload"
+            app.exit(8)
+            return
+        hidden_controller.set_pocket_mode("current")
+        if pocket_name not in cmd.get_names("all", enabled_only=1):
+            phase["failed"] = "hidden saved session could not restore current pocket"
+            app.exit(8)
+            return
+        styles = hidden_controller.current_appearance()
+        styles["hydrogen_bonds"].update(
+            color=[1.0, 1.0, 0.0],
+            pattern="dashed",
+            dash_length=0.15,
+            dash_gap=0.50,
+        )
+        hidden_controller.apply_interaction_appearance(styles)
+        hydrogen_bonds = object_names["hydrogen_bonds"]
+        if abs(float(cmd.get("dash_gap", hydrogen_bonds)) - 0.50) > 1e-6:
+            phase["failed"] = "attached-session appearance did not apply"
+            app.exit(8)
+            return
+        with tempfile.NamedTemporaryFile(suffix=".pse") as styled:
+            cmd.save(styled.name)
+            cmd.reinitialize()
+            cmd.load(styled.name)
+        styled_controller = PoseInspectorController(cmd)
+        styled_controller.attach_existing_run("EP4_poses", "EP4_receptor")
+        styled_hbond = styled_controller.current_appearance()["hydrogen_bonds"]
+        if styled_hbond["pattern"] != "dashed" or any(
+            abs(actual - expected) > 1e-5
+            for actual, expected in zip(styled_hbond["color"], (1.0, 1.0, 0.0))
+        ):
+            phase["failed"] = "custom appearance did not survive PSE reload"
+            app.exit(8)
+            return
+        attached.state_timer.stop()
+        hidden_controller.state_timer.stop()
+        styled_controller.state_timer.stop()
         app.quit()
 
     controller.progress_changed.connect(progress)

@@ -1,6 +1,6 @@
 reinitialize
-load ep4r_rec.crg.pdb, EP4_receptor
-load examples/ep4r_matched_poses_first5.sdf, EP4_poses, discrete=1
+load fixtures/ep4/ep4r_rec.crg.pdb, EP4_receptor
+load fixtures/ep4/ep4r_matched_poses_first5.sdf, EP4_poses, discrete=1
 hide everything, all
 show cartoon, EP4_receptor and polymer.protein
 show sticks, EP4_poses

@@ -28,12 +28,17 @@ class OverlayRun:
     interactions_group: str
     structures_group: str
     pocket_name: str
+    pocket_all_name: str
     object_names: dict[str, str] = field(default_factory=dict)
     group_names: list[str] = field(default_factory=list)
 
     @property
     def owned_names(self) -> list[str]:
-        return list(self.object_names.values()) + [self.pocket_name] + self.group_names
+        return (
+            list(self.object_names.values())
+            + [self.pocket_name, self.pocket_all_name]
+            + self.group_names
+        )
 
 
 def make_run(ligand_object: str) -> OverlayRun:
@@ -47,6 +52,7 @@ def make_run(ligand_object: str) -> OverlayRun:
         interactions_group=interactions,
         structures_group=structures,
         pocket_name=f"{top}_Pocket",
+        pocket_all_name=f"{top}_Pocket_All",
         object_names={
             name: f"{top}_{safe_name(INTERACTION_LABELS[name])}"
             for name in INTERACTION_TYPES
@@ -258,7 +264,46 @@ def _union_residues(profiles: dict[int, dict[str, Any]]) -> list[dict[str, Any]]
     return [residues[key] for key in sorted(residues)]
 
 
-def render_pocket(
+def _style_pocket(cmd: Any, run: OverlayRun, object_name: str) -> None:
+    sentinel_selection = f"({object_name}) and segi {_quoted(POCKET_SENTINEL_SEGI)}"
+    cmd.hide("everything", object_name)
+    cmd.show("sticks", object_name)
+    cmd.hide("everything", sentinel_selection)
+    cmd.hide("sticks", f"({object_name}) and elem H")
+    try:
+        cmd.util.cnc(object_name)
+    except Exception:
+        pass
+    cmd.group(run.structures_group, object_name)
+
+
+def set_pocket_visibility(cmd: Any, run: OverlayRun, mode: str) -> None:
+    mode = normalize_pocket_mode(mode)
+    existing = set(cmd.get_names("all"))
+    current_exists = run.pocket_name in existing
+    all_exists = run.pocket_all_name in existing
+    if mode == "current" and not current_exists:
+        raise ValueError("The current-pose pocket is unavailable")
+    if mode == "all" and not all_exists:
+        raise ValueError("The all-analyzed-poses pocket is unavailable")
+    for object_name, enabled in (
+        (run.pocket_name, mode == "current"),
+        (run.pocket_all_name, mode == "all"),
+    ):
+        if object_name in existing:
+            (cmd.enable if enabled else cmd.disable)(object_name)
+
+
+def detect_pocket_mode(cmd: Any, run: OverlayRun) -> str:
+    enabled = set(cmd.get_names("all", enabled_only=1))
+    if run.pocket_name in enabled:
+        return "current"
+    if run.pocket_all_name in enabled:
+        return "all"
+    return "off"
+
+
+def render_pockets(
     cmd: Any,
     *,
     run: OverlayRun,
@@ -270,8 +315,7 @@ def render_pocket(
 ) -> None:
     mode = normalize_pocket_mode(mode)
     cmd.delete(run.pocket_name)
-    if mode == "off":
-        return
+    cmd.delete(run.pocket_all_name)
     if total_states < 1:
         raise ValueError("Pocket rendering requires at least one state")
 
@@ -292,28 +336,10 @@ def render_pocket(
         state=receptor_state,
     )
     try:
-        if mode == "current":
-            for state in range(1, total_states + 1):
-                profile = profiles.get(state)
-                residues = () if profile is None else profile.get("residues", ())
-                residue_selection = _residue_selection(receptor_selection, residues)
-                selection = (
-                    f"({sentinel}) or ({residue_selection})"
-                    if residue_selection
-                    else sentinel
-                )
-                cmd.create(
-                    run.pocket_name,
-                    selection,
-                    receptor_state,
-                    state,
-                    discrete=1,
-                )
-        else:
-            residue_selection = _residue_selection(
-                receptor_selection,
-                _union_residues(profiles),
-            )
+        for state in range(1, total_states + 1):
+            profile = profiles.get(state)
+            residues = () if profile is None else profile.get("residues", ())
+            residue_selection = _residue_selection(receptor_selection, residues)
             selection = (
                 f"({sentinel}) or ({residue_selection})"
                 if residue_selection
@@ -323,22 +349,94 @@ def render_pocket(
                 run.pocket_name,
                 selection,
                 receptor_state,
-                1,
+                state,
                 discrete=1,
             )
-            cmd.set("static_singletons", 1, run.pocket_name)
+
+        residue_selection = _residue_selection(
+            receptor_selection,
+            _union_residues(profiles),
+        )
+        selection = (
+            f"({sentinel}) or ({residue_selection})"
+            if residue_selection
+            else sentinel
+        )
+        cmd.create(
+            run.pocket_all_name,
+            selection,
+            receptor_state,
+            1,
+            discrete=1,
+        )
+        cmd.set("static_singletons", 1, run.pocket_all_name)
     finally:
         cmd.delete(sentinel)
 
-    sentinel_selection = (
-        f"({run.pocket_name}) and segi {_quoted(POCKET_SENTINEL_SEGI)}"
+    _style_pocket(cmd, run, run.pocket_name)
+    _style_pocket(cmd, run, run.pocket_all_name)
+    set_pocket_visibility(cmd, run, mode)
+
+
+def ensure_all_pocket(
+    cmd: Any,
+    *,
+    run: OverlayRun,
+    receptor_selection: str,
+    receptor_state: int,
+) -> bool:
+    """Build a Beta 0.3 union pocket from a Beta 0.2 current pocket."""
+
+    existing = set(cmd.get_names("all"))
+    if run.pocket_all_name in existing:
+        return True
+    if run.pocket_name not in existing or not receptor_selection:
+        return False
+
+    residues: dict[tuple[str, str, str], dict[str, str]] = {}
+    for state in range(1, max(1, int(cmd.count_states(run.pocket_name))) + 1):
+        for atom in cmd.get_model(run.pocket_name, state).atom:
+            if str(atom.segi) == POCKET_SENTINEL_SEGI:
+                continue
+            key = (str(atom.chain), str(atom.resi), str(atom.resn))
+            residues[key] = {"chain": key[0], "resi": key[1], "resn": key[2]}
+
+    receptor_model = cmd.get_model(receptor_selection, receptor_state)
+    if not receptor_model.atom:
+        return False
+    anchor = tuple(float(value) for value in receptor_model.atom[0].coord)
+    sentinel = cmd.get_unused_name("_PLIP_Pose_Inspector_pocket_sentinel")
+    cmd.pseudoatom(
+        sentinel,
+        name="DUM",
+        resn="PPI",
+        resi="0",
+        chain="",
+        segi=POCKET_SENTINEL_SEGI,
+        elem="X",
+        pos=anchor,
+        state=receptor_state,
     )
-    cmd.hide("everything", run.pocket_name)
-    cmd.show("sticks", run.pocket_name)
-    cmd.hide("everything", sentinel_selection)
-    cmd.hide("sticks", f"({run.pocket_name}) and elem H")
     try:
-        cmd.util.cnc(run.pocket_name)
-    except Exception:
-        pass
-    cmd.group(run.structures_group, run.pocket_name)
+        residue_selection = _residue_selection(
+            receptor_selection,
+            [residues[key] for key in sorted(residues)],
+        )
+        selection = (
+            f"({sentinel}) or ({residue_selection})"
+            if residue_selection
+            else sentinel
+        )
+        cmd.create(
+            run.pocket_all_name,
+            selection,
+            receptor_state,
+            1,
+            discrete=1,
+        )
+        cmd.set("static_singletons", 1, run.pocket_all_name)
+    finally:
+        cmd.delete(sentinel)
+    _style_pocket(cmd, run, run.pocket_all_name)
+    cmd.disable(run.pocket_all_name)
+    return True

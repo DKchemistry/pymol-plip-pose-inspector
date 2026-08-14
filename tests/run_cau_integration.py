@@ -21,7 +21,7 @@ def main() -> int:
     cache_directory = tempfile.TemporaryDirectory(prefix="plip-cau-cache-")
     os.environ["PYMOL_PLIP_CACHE"] = cache_directory.name
     cmd.reinitialize()
-    cmd.load(str(ROOT / "2RH1_CAU_A_408.pse"))
+    cmd.load(str(ROOT / "fixtures" / "2rh1" / "2RH1_CAU_A_408.pse"))
     cmd.create("CAU_pose", "Ligand_CAU", 1, 1)
     cmd.set_title("CAU_pose", 1, "CAU / 2RH1")
     source_atoms = cmd.count_atoms("CAU_pose")
