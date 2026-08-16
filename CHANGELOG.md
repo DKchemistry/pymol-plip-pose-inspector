@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-08-16
+
+- Added an optional **2D Review…** launcher for the standalone Ligand Review
+  Panel, bound to the current ligand object.
+- Added the `plip_2d ligand=""` command and graceful guidance when the
+  companion plugin is unavailable.
+- Verified concurrent PLIP measurement overlays and state-synchronized RDKit
+  depictions in PyMOL 2.5 and 3.1.
+
 ## 0.3.0 — 2026-08-14
 
 - Prebuilt current-pose and all-analyzed pocket objects and changed modes using

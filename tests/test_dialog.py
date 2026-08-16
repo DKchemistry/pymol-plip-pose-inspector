@@ -156,6 +156,10 @@ class DialogGeometryTests(unittest.TestCase):
         self.assertIn("Restore PLIP Defaults", button_texts)
         appearance.close()
 
+    def test_2d_review_launcher_is_visible(self):
+        self.assertEqual(self.dialog.review_2d_button.text(), "2D Review…")
+        self.assertIn("Ligand Review Panel", self.dialog.review_2d_button.toolTip())
+
     def test_multiple_saved_runs_require_an_explicit_ligand(self):
         from pymol_plip.profiles import empty_profile
         from pymol_plip.rendering import render_pockets, render_profiles

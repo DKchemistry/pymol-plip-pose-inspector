@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import gzip
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from pymol_plip.appearance import (
     clear_saved_appearance,
@@ -81,6 +83,26 @@ class CoreTests(unittest.TestCase):
         ).split('"""', 1)[0]
         self.assertIn("# Citation:", header)
         self.assertNotIn("Citation-Required", header)
+
+    def test_plip_2d_bridge_uses_active_ligand_without_hard_dependency(self):
+        import pymol_plip
+
+        original_controller = pymol_plip._controller
+        original_dialog = pymol_plip._dialog
+        calls = []
+        companion = SimpleNamespace(ligand_review_gui=lambda ligand: calls.append(ligand))
+        try:
+            pymol_plip._controller = SimpleNamespace(active_ligand_object="poses")
+            pymol_plip._dialog = None
+            with mock.patch.dict(sys.modules, {"pymol_ligand_review": companion}):
+                pymol_plip.plip_2d()
+            self.assertEqual(calls, ["poses"])
+            with mock.patch.dict(sys.modules, {"pymol_ligand_review": None}):
+                with self.assertRaisesRegex(RuntimeError, "not installed"):
+                    pymol_plip.plip_2d()
+        finally:
+            pymol_plip._controller = original_controller
+            pymol_plip._dialog = original_dialog
 
     def test_pymol_sdf_title_cleanup(self):
         self.assertEqual(clean_state_title("ZINC123 none", state=1), "ZINC123")

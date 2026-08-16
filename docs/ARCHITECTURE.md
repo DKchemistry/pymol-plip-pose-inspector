@@ -111,6 +111,15 @@ The 175 ms state watcher updates only dialog text and counts. It never rebuilds
 or deletes molecular geometry. Closing the dialog does not destroy the
 controller or watcher.
 
+## Optional Ligand Review bridge
+
+The **2D Review…** action and `plip_2d` command dynamically import the separate
+`pymol_ligand_review` package and pass the current ligand selection. There is
+no package-level dependency and no RDKit import in PLIP or PyMOL. Once opened,
+the companion watches PyMOL's global state independently, while PLIP's native
+measurement objects continue switching normally. A missing companion produces
+installation guidance without affecting analysis or saved overlays.
+
 ## Failure and cancellation semantics
 
 The current overlay stays intact while a worker runs. On partial completion,

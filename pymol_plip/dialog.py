@@ -450,11 +450,16 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         )
         self.settings_button = QtWidgets.QPushButton("Settings…")
         self.appearance_button = QtWidgets.QPushButton("Appearance…")
+        self.review_2d_button = QtWidgets.QPushButton("2D Review…")
+        self.review_2d_button.setToolTip(
+            "Open the optional Ligand Review Panel on this ligand object."
+        )
         self.citation_button = QtWidgets.QPushButton("Citation…")
         options.addWidget(self.all_button)
         options.addWidget(self.clear_button)
         options.addWidget(pocket_label)
         options.addWidget(self.pocket, 1)
+        options.addWidget(self.review_2d_button)
         options.addWidget(self.appearance_button)
         options.addWidget(self.settings_button)
         options.addWidget(self.citation_button)
@@ -486,6 +491,7 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self.clear_button.clicked.connect(controller.clear)
         self.pocket.currentIndexChanged.connect(self._set_pocket_mode)
         self.appearance_button.clicked.connect(self._show_appearance)
+        self.review_2d_button.clicked.connect(self._show_2d_review)
         self.settings_button.clicked.connect(self._show_settings)
         self.citation_button.clicked.connect(self._show_citation)
         self.diagnostics_button.clicked.connect(self._show_diagnostics)
@@ -677,6 +683,21 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self._appearance_dialog.show()
         self._appearance_dialog.raise_()
         self._appearance_dialog.activateWindow()
+
+    def _show_2d_review(self) -> None:
+        try:
+            import pymol_ligand_review
+
+            pymol_ligand_review.ligand_review_gui(self.ligand.currentText().strip())
+        except Exception as exc:
+            message = (
+                "Ligand Review Panel is not installed. Install its PyMOL Plugin Manager ZIP "
+                "to enable synchronized 2D structures and compound selection."
+                if isinstance(exc, ImportError)
+                else str(exc)
+            )
+            self.status.setText(message)
+            QtWidgets.QMessageBox.information(self, "2D Ligand Review", message)
 
     def _show_diagnostics(self) -> None:
         state = self.controller.current_status()[0]

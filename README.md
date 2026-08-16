@@ -34,7 +34,8 @@ The current release is an Apple Silicon beta tested against the local PyMOL
 - Original receptor and ligand objects and their representations are not
   modified.
 - Scriptable `plip_gui`, `plip_analyze`, `plip_toggle`, `plip_pocket`, and
-  `plip_clear` commands.
+  `plip_clear` commands, plus an optional `plip_2d` bridge to Ligand Review
+  Panel.
 
 ## Install
 
@@ -51,7 +52,7 @@ python3 scripts/build_plugin_zip.py
 ```
 
 In PyMOL, open **Plugin → Plugin Manager → Install New Plugin**, select
-`dist/PLIP_Pose_Inspector-0.3.0.zip`, then open **Plugin → PLIP Pose
+`dist/PLIP_Pose_Inspector-0.4.0.zip`, then open **Plugin → PLIP Pose
 Inspector**. The plugin auto-detects
 `~/miniconda3/envs/pymol-plip-plugin/bin/python`; a different interpreter can
 be selected and health-checked under **Settings**.
@@ -94,6 +95,8 @@ plip_toggle types=all, enabled=toggle
 plip_pocket mode=current, ligand=ligands
 plip_pocket mode=all
 plip_pocket mode=off
+plip_2d
+plip_2d ligand=ligands
 plip_clear
 ```
 
@@ -115,6 +118,19 @@ session/project setting because it also affects unrelated measurements.
 
 `plip_clear` deletes only namespaced objects owned by the plugin. Closing the
 dialog leaves overlays and state synchronization active.
+
+## Optional 2D ligand review
+
+PLIP Pose Inspector 0.4 adds **2D Review…**, which opens the separately
+installed **Ligand Review Panel** on the current ligand selector. The companion
+uses an external RDKit process to show the current state's 2D structure and
+canonical SMILES, mark compounds, and export a compound-level CSV worklist.
+Both windows follow PyMOL's global state independently, so either can remain
+open or be hidden without affecting the other.
+
+Install the companion's Plugin Manager ZIP and RDKit environment before using
+this action. If it is absent, PLIP reports installation guidance and all
+interaction-analysis functionality remains available.
 
 ## EP4 beta demo
 

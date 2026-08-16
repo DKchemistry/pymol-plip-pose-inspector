@@ -1,5 +1,5 @@
 # Name: PLIP Pose Inspector
-# Version: 0.3.0
+# Version: 0.4.0
 # Citation: Adasme et al. (2021), doi:10.1093/nar/gkab294; Salentin et al. (2015), doi:10.1093/nar/gkv315
 """PyMOL entry point for PLIP Pose Inspector.
 
@@ -88,6 +88,26 @@ def plip_pocket(mode="current", ligand=""):
     return get_controller().set_pocket_mode(mode, str(ligand))
 
 
+def plip_2d(ligand=""):
+    """Open the optional Ligand Review Panel on this run's ligand."""
+    ligand = str(ligand).strip()
+    controller = get_controller()
+    if not ligand:
+        ligand = controller.active_ligand_object
+    if not ligand and _dialog is not None:
+        ligand = _dialog.ligand.currentText().strip()
+    if not ligand:
+        raise ValueError("Choose a ligand object before opening the 2D reviewer")
+    try:
+        import pymol_ligand_review
+    except ImportError as exc:
+        raise RuntimeError(
+            "Ligand Review Panel is not installed. Install its PyMOL Plugin Manager ZIP, "
+            "then reopen this action."
+        ) from exc
+    return pymol_ligand_review.ligand_review_gui(ligand)
+
+
 def __init_plugin__(app=None):
     global _initialized
     if _initialized:
@@ -99,6 +119,7 @@ def __init_plugin__(app=None):
     cmd.extend("plip_analyze", plip_analyze)
     cmd.extend("plip_toggle", plip_toggle)
     cmd.extend("plip_pocket", plip_pocket)
+    cmd.extend("plip_2d", plip_2d)
     cmd.extend("plip_clear", plip_clear)
     addmenuitemqt("PLIP Pose Inspector", plip_gui)
     _initialized = True

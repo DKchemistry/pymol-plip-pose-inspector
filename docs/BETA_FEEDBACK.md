@@ -2,7 +2,7 @@
 
 ## Gate 1 — five-pose EP4 presentation
 
-Status: Beta 0.3 ready for user retest after opening `demos/EP4_first5_beta.pse` or
+Status: Beta 0.4 ready for user retest after opening `demos/EP4_first5_beta.pse` or
 running `@demos/ep4_first5.pml`.
 
 Please review:
@@ -35,6 +35,10 @@ Feedback log:
   sessions without PLIP, persists hidden mode, adds scoped appearance defaults,
   diagnostics and Qt citation dialogs, and moves reference data under
   `fixtures/`. Awaiting user retest.
+- 2026-08-16: Beta 0.4 adds the optional Ligand Review Panel launcher. Internal
+  PyMOL 2.5/3.1 tests confirm the saved PLIP overlay and RDKit depiction follow
+  the same state before and after the 2D window is hidden. Awaiting feedback on
+  the combined 3D interaction/2D selection workflow.
 
 ## Gate 2 — 118-pose EP4 performance
 
