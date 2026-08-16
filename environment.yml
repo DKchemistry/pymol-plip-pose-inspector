@@ -1,0 +1,7 @@
+name: pymol-ligand-review
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - rdkit=2025.03.5
+
