@@ -1,4 +1,4 @@
-"""Nonmodal Qt interface for PLIP Pose Inspector."""
+"""Nonmodal Qt interface for PyMOL Pose Inspector."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class CitationDialog(QtWidgets.QDialog):
         self.resize(680, 350)
         layout = QtWidgets.QVBoxLayout(self)
         explanation = QtWidgets.QLabel(
-            "Interaction perception in PLIP Pose Inspector is provided by PLIP."
+            "Interaction perception in PyMOL Pose Inspector is provided by PLIP."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -238,7 +238,7 @@ class AppearanceDialog(QtWidgets.QDialog):
                 save_as_defaults=save_as_defaults,
             )
         except Exception as exc:
-            QtWidgets.QMessageBox.warning(self, "PLIP Pose Inspector", str(exc))
+            QtWidgets.QMessageBox.warning(self, "PyMOL Pose Inspector", str(exc))
 
     def _restore(self) -> None:
         styles = self.controller.restore_plip_appearance()
@@ -249,8 +249,13 @@ class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, controller: Any, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent)
         self.controller = controller
-        self.setWindowTitle("PLIP Pose Inspector Settings")
+        self.application = getattr(controller, "application", None)
+        self.review_controller = (
+            self.application.review_controller if self.application is not None else None
+        )
+        self.setWindowTitle("PyMOL Pose Inspector Settings")
         self.setModal(False)
+        self.resize(760, 390)
         layout = QtWidgets.QVBoxLayout(self)
 
         form = QtWidgets.QFormLayout()
@@ -275,12 +280,30 @@ class SettingsDialog(QtWidgets.QDialog):
         test_button.clicked.connect(self._test)
         layout.addWidget(test_button)
 
+        caches = QtWidgets.QGroupBox("Persistent caches")
+        cache_layout = QtWidgets.QGridLayout(caches)
         self.cache = QtWidgets.QLabel()
         self.cache.setWordWrap(True)
-        layout.addWidget(self.cache)
-        clear_cache = QtWidgets.QPushButton("Clear Persistent Cache…")
+        self.depiction_cache = QtWidgets.QLabel()
+        self.depiction_cache.setWordWrap(True)
+        cache_layout.addWidget(self.cache, 0, 0)
+        clear_cache = QtWidgets.QPushButton("Clear PLIP Profiles…")
         clear_cache.clicked.connect(self._clear_cache)
-        layout.addWidget(clear_cache)
+        cache_layout.addWidget(clear_cache, 0, 1)
+        cache_layout.addWidget(self.depiction_cache, 1, 0)
+        clear_depictions = QtWidgets.QPushButton("Clear RDKit Depictions…")
+        clear_depictions.clicked.connect(self._clear_depiction_cache)
+        clear_depictions.setEnabled(self.review_controller is not None)
+        cache_layout.addWidget(clear_depictions, 1, 1)
+        cache_layout.setColumnStretch(0, 1)
+        layout.addWidget(caches)
+
+        note = QtWidgets.QLabel(
+            "PLIP, OpenBabel, and RDKit run only in this external interpreter. "
+            "The recommended environment is named pymol-pose-inspector."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Close
@@ -310,7 +333,16 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def _refresh_cache(self) -> None:
         count, size, root = self.controller.cache_stats()
-        self.cache.setText(f"Cache: {count} profile(s), {size / (1024 * 1024):.2f} MiB\n{root}")
+        self.cache.setText(
+            f"PLIP profiles: {count}, {size / (1024 * 1024):.2f} MiB\n{root}"
+        )
+        if self.review_controller is not None:
+            count, size, root = self.review_controller.cache_stats()
+            self.depiction_cache.setText(
+                f"RDKit depictions: {count}, {size / (1024 * 1024):.2f} MiB\n{root}"
+            )
+        else:
+            self.depiction_cache.setText("RDKit depiction cache unavailable")
 
     def _clear_cache(self) -> None:
         answer = QtWidgets.QMessageBox.question(
@@ -322,6 +354,25 @@ class SettingsDialog(QtWidgets.QDialog):
             self.controller.clear_cache()
             self._refresh_cache()
 
+    def _clear_depiction_cache(self) -> None:
+        if self.review_controller is None:
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Clear RDKit depiction cache",
+            "Delete all cached 2D ligand depictions? Marked compounds are unaffected.",
+        )
+        if answer == QtWidgets.QMessageBox.Yes:
+            try:
+                self.review_controller.clear_cache()
+                self._refresh_cache()
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(self, "PyMOL Pose Inspector", str(exc))
+
+    def showEvent(self, event: Any) -> None:
+        self._refresh_cache()
+        super().showEvent(event)
+
 
 class PoseInspectorDialog(QtWidgets.QDialog):
     def __init__(self, controller: Any):
@@ -331,7 +382,7 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self._appearance_dialog: AppearanceDialog | None = None
         self._diagnostics_dialog: DiagnosticsDialog | None = None
         self._citation_dialog: CitationDialog | None = None
-        self.setWindowTitle("PLIP Pose Inspector")
+        self.setWindowTitle("PyMOL Pose Inspector")
         self.setModal(False)
         self.resize(820, 720)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
@@ -452,7 +503,7 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self.appearance_button = QtWidgets.QPushButton("Appearance…")
         self.review_2d_button = QtWidgets.QPushButton("2D Review…")
         self.review_2d_button.setToolTip(
-            "Open the optional Ligand Review Panel on this ligand object."
+            "Open the integrated Ligand Review Panel on this ligand object."
         )
         self.citation_button = QtWidgets.QPushButton("Citation…")
         options.addWidget(self.all_button)
@@ -502,6 +553,8 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         controller.profiles_changed.connect(self._profiles_changed)
         controller.state_changed.connect(self._state_changed)
         controller.error_occurred.connect(self._show_error)
+        if controller.session is not None:
+            controller.session.ligand_changed.connect(self._shared_ligand_changed)
 
         self.refresh_objects()
         self._profiles_changed()
@@ -535,14 +588,27 @@ class PoseInspectorDialog(QtWidgets.QDialog):
             combo.addItems(names)
             combo.setEditText(value)
             combo.blockSignals(False)
+        self.controller.select_ligand(ligand_text)
         self.controller.attach_existing_run(ligand_text, receptor_text)
         self._refresh_ligand_info()
 
     def _ligand_changed(self, _text: str) -> None:
+        self.controller.select_ligand(self.ligand.currentText())
         self.controller.attach_existing_run(
             self.ligand.currentText(),
             self.receptor.currentText(),
         )
+        self._refresh_ligand_info()
+
+    def _shared_ligand_changed(
+        self, selection: str, _ligand_object: str, _total: int
+    ) -> None:
+        if self.ligand.currentText().strip() == selection:
+            return
+        self.ligand.blockSignals(True)
+        self.ligand.setEditText(selection)
+        self.ligand.blockSignals(False)
+        self.controller.attach_existing_run(selection, self.receptor.currentText())
         self._refresh_ligand_info()
 
     def _refresh_ligand_info(self) -> None:
@@ -671,6 +737,9 @@ class PoseInspectorDialog(QtWidgets.QDialog):
         self._profiles_changed()
 
     def _show_settings(self) -> None:
+        if self.controller.application is not None:
+            self.controller.application.show_settings(self)
+            return
         if self._settings_dialog is None:
             self._settings_dialog = SettingsDialog(self.controller, self)
         self._settings_dialog.show()
@@ -686,16 +755,11 @@ class PoseInspectorDialog(QtWidgets.QDialog):
 
     def _show_2d_review(self) -> None:
         try:
-            import pymol_ligand_review
-
-            pymol_ligand_review.ligand_review_gui(self.ligand.currentText().strip())
+            if self.controller.application is None:
+                raise RuntimeError("Integrated application controller is unavailable")
+            self.controller.application.show_review(self.ligand.currentText().strip())
         except Exception as exc:
-            message = (
-                "Ligand Review Panel is not installed. Install its PyMOL Plugin Manager ZIP "
-                "to enable synchronized 2D structures and compound selection."
-                if isinstance(exc, ImportError)
-                else str(exc)
-            )
+            message = str(exc)
             self.status.setText(message)
             QtWidgets.QMessageBox.information(self, "2D Ligand Review", message)
 
@@ -727,4 +791,4 @@ class PoseInspectorDialog(QtWidgets.QDialog):
 
     def _show_error(self, message: str) -> None:
         self.status.setText(message)
-        QtWidgets.QMessageBox.warning(self, "PLIP Pose Inspector", message)
+        QtWidgets.QMessageBox.warning(self, "PyMOL Pose Inspector", message)

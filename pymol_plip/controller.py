@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +17,14 @@ from .appearance import (
     read_appearance,
     save_appearance,
 )
-from .cache import ProfileCache, default_cache_dir
+from .cache import ProfileCache
 from .constants import (
     DEFAULT_RECEPTOR_FILTER,
-    INTERACTION_LABELS,
     INTERACTION_TYPES,
-    WORKER_ENV_NAME,
 )
 from .exporting import ExportBundle, ExportError, clean_state_title, export_bundle
 from .profiles import interaction_counts
+from .runtime import WorkerRuntime
 from .rendering import (
     OverlayRun,
     delete_run,
@@ -41,6 +38,7 @@ from .rendering import (
     safe_name,
     set_pocket_visibility,
 )
+from .workspace import WorkspaceSession, molecular_objects
 
 Signal = getattr(QtCore, "Signal", QtCore.pyqtSignal)
 
@@ -74,10 +72,19 @@ class PoseInspectorController(QtCore.QObject):
     objects_changed = Signal(object)
     error_occurred = Signal(str)
 
-    def __init__(self, cmd: Any):
+    def __init__(
+        self,
+        cmd: Any,
+        *,
+        session: WorkspaceSession | None = None,
+        runtime: WorkerRuntime | None = None,
+    ):
         super().__init__()
         self.cmd = cmd
-        self.settings = QtCore.QSettings("PLIP Pose Inspector", "PLIP Pose Inspector")
+        self.session = session
+        self.runtime = runtime or WorkerRuntime()
+        self.settings = self.runtime.settings
+        self.application: Any | None = None
         self.process: QtCore.QProcess | None = None
         self.bundle: ExportBundle | None = None
         self.run: OverlayRun | None = None
@@ -104,10 +111,16 @@ class PoseInspectorController(QtCore.QObject):
         self._last_state: int | None = None
         self._last_title = ""
 
-        self.state_timer = QtCore.QTimer(self)
-        self.state_timer.setInterval(175)
-        self.state_timer.timeout.connect(self._poll_state)
-        self.state_timer.start()
+        if self.session is None:
+            self.state_timer = QtCore.QTimer(self)
+            self.state_timer.setInterval(125)
+            self.state_timer.timeout.connect(self._poll_state)
+            self.state_timer.start()
+        else:
+            self.state_timer = self.session.state_timer
+            self.session.state_changed.connect(
+                lambda _state, _title: self._poll_state()
+            )
 
     @property
     def is_running(self) -> bool:
@@ -118,93 +131,25 @@ class PoseInspectorController(QtCore.QObject):
         return Path(__file__).with_name("worker.py")
 
     def worker_python_candidates(self) -> list[Path]:
-        configured = str(self.settings.value("worker_python", "") or "").strip()
-        environment = os.environ.get("PYMOL_PLIP_PYTHON", "").strip()
-        home = Path.home()
-        candidates = [Path(value).expanduser() for value in (configured, environment) if value]
-        candidates.extend(
-            root / "envs" / WORKER_ENV_NAME / "bin" / "python"
-            for root in (
-                home / "miniconda3",
-                home / "miniforge3",
-                home / "mambaforge",
-                home / "anaconda3",
-            )
-        )
-        unique: list[Path] = []
-        for candidate in candidates:
-            if candidate not in unique:
-                unique.append(candidate)
-        return unique
+        return self.runtime.worker_python_candidates()
 
     def worker_python(self) -> Path:
-        candidates = self.worker_python_candidates()
-        for candidate in candidates:
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return candidate
-        configured = str(self.settings.value("worker_python", "") or "").strip()
-        if configured:
-            raise FileNotFoundError(f"Configured worker Python does not exist: {configured}")
-        searched = "\n".join(f"  {path}" for path in candidates)
-        raise FileNotFoundError(
-            f"Could not find the {WORKER_ENV_NAME!r} worker environment. "
-            f"Searched:\n{searched}\nConfigure its Python executable in Settings."
-        )
+        return self.runtime.worker_python()
 
     def set_worker_python(self, value: str) -> None:
-        self.settings.setValue("worker_python", str(Path(value).expanduser()) if value else "")
+        self.runtime.set_worker_python(value)
 
     def health_check(self, python_path: str | None = None) -> tuple[bool, str, dict[str, str]]:
-        try:
-            executable = Path(python_path).expanduser() if python_path else self.worker_python()
-            completed = subprocess.run(
-                [str(executable), str(self.worker_script), "--health"],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            events = []
-            for line in completed.stdout.splitlines():
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-            event = next((item for item in reversed(events) if item.get("event") in {"health", "fatal"}), {})
-            if completed.returncode == 0 and event.get("ok"):
-                engine = dict(event.get("engine", {}))
-                summary = (
-                    f"Ready: PLIP {engine.get('plip', '?')}, "
-                    f"OpenBabel {engine.get('openbabel', '?')}, Python {engine.get('python', '?')}"
-                )
-                return True, summary, engine
-            message = event.get("error") or completed.stderr.strip() or completed.stdout.strip()
-            return False, message or f"Worker exited with status {completed.returncode}", {}
-        except Exception as exc:
-            return False, str(exc), {}
+        return self.runtime.health_check(python_path)
 
     def molecular_objects(self) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for name in self.cmd.get_names("objects"):
-            try:
-                if name.startswith("PLIP_Pose_Inspector_"):
-                    continue
-                if self.cmd.get_type(name) != "object:molecule":
-                    continue
-                result.append(
-                    {
-                        "name": name,
-                        "states": int(self.cmd.count_states(name)),
-                        "atoms": int(self.cmd.count_atoms(name)),
-                        "protein_atoms": int(self.cmd.count_atoms(f"({name}) and polymer.protein")),
-                    }
-                )
-            except Exception:
-                continue
+        result = self.session.objects() if self.session is not None else molecular_objects(self.cmd)
         self.objects_changed.emit(result)
         return result
 
     def ligand_info(self, selection: str) -> tuple[str, int, int, str]:
+        if self.session is not None:
+            return self.session.ligand_info(selection)
         try:
             objects = self.cmd.get_object_list(f"({selection})")
             if len(objects) != 1:
@@ -216,6 +161,17 @@ class PoseInspectorController(QtCore.QObject):
             return name, total, current, title
         except Exception:
             return "", 0, int(self.cmd.get_state()), ""
+
+    def select_ligand(self, selection: str) -> bool:
+        """Update the shared selection without starting PLIP analysis."""
+        selection = str(selection).strip()
+        if not selection or self.session is None:
+            return False
+        try:
+            self.session.set_ligand(selection)
+        except Exception:
+            return False
+        return True
 
     def analyze(
         self,
@@ -255,6 +211,8 @@ class PoseInspectorController(QtCore.QObject):
             receptor_state=receptor_state,
             states=states,
         )
+        if self.session is not None:
+            self.session.set_ligand(ligand)
         self.bundle = bundle
         self._pending_profiles = {}
         self._pending_failures = {}

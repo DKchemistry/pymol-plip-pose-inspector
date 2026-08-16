@@ -11,11 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_TEXT = (ROOT / "pymol_plip" / "constants.py").read_text(encoding="utf-8")
 VERSION = re.search(r'^PLUGIN_VERSION = "([^"]+)"', VERSION_TEXT, re.MULTILINE).group(1)
-OUTPUT = ROOT / "dist" / f"PLIP_Pose_Inspector-{VERSION}.zip"
+OUTPUT = ROOT / "dist" / f"PyMOL_Pose_Inspector-{VERSION}.zip"
 
 
 def files_to_package() -> list[Path]:
-    files = sorted((ROOT / "pymol_plip").glob("*.py"))
+    files = sorted((ROOT / "pymol_plip").rglob("*.py"))
+    files.append(ROOT / "pymol_ligand_review.py")
     files.extend([ROOT / "README.md", ROOT / "CHANGELOG.md", ROOT / "environment.yml"])
     return files
 

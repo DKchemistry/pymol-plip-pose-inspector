@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymol-plip-pose-inspector"
-version = "0.4.0"
-description = "State-aware PLIP interaction overlays for PyMOL docking poses"
+version = "0.5.0"
+description = "State-aware PLIP interactions and RDKit ligand review for PyMOL"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "David Kouvchinov"}]
@@ -19,6 +19,9 @@ classifiers = [
 
 [tool.setuptools.packages.find]
 include = ["pymol_plip*"]
+
+[tool.setuptools]
+py-modules = ["pymol_ligand_review"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

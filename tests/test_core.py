@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import gzip
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 
 from pymol_plip.appearance import (
     clear_saved_appearance,
@@ -84,25 +82,27 @@ class CoreTests(unittest.TestCase):
         self.assertIn("# Citation:", header)
         self.assertNotIn("Citation-Required", header)
 
-    def test_plip_2d_bridge_uses_active_ligand_without_hard_dependency(self):
+    def test_plip_2d_uses_integrated_reviewer_and_active_ligand(self):
         import pymol_plip
 
-        original_controller = pymol_plip._controller
-        original_dialog = pymol_plip._dialog
+        original_application = pymol_plip._application
         calls = []
-        companion = SimpleNamespace(ligand_review_gui=lambda ligand: calls.append(ligand))
         try:
-            pymol_plip._controller = SimpleNamespace(active_ligand_object="poses")
-            pymol_plip._dialog = None
-            with mock.patch.dict(sys.modules, {"pymol_ligand_review": companion}):
-                pymol_plip.plip_2d()
+            pymol_plip._application = SimpleNamespace(
+                session=SimpleNamespace(active_selection="poses"),
+                plip_controller=SimpleNamespace(active_ligand_object="poses"),
+                show_review=lambda ligand: calls.append(ligand),
+            )
+            pymol_plip.plip_2d()
             self.assertEqual(calls, ["poses"])
-            with mock.patch.dict(sys.modules, {"pymol_ligand_review": None}):
-                with self.assertRaisesRegex(RuntimeError, "not installed"):
-                    pymol_plip.plip_2d()
         finally:
-            pymol_plip._controller = original_controller
-            pymol_plip._dialog = original_dialog
+            pymol_plip._application = original_application
+
+    def test_ligand_review_import_facade_is_bundled(self):
+        import pymol_ligand_review
+
+        self.assertTrue(callable(pymol_ligand_review.ligand_review_gui))
+        self.assertTrue(callable(pymol_ligand_review.ligand_review_export))
 
     def test_pymol_sdf_title_cleanup(self):
         self.assertEqual(clean_state_title("ZINC123 none", state=1), "ZINC123")

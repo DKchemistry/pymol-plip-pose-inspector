@@ -19,6 +19,11 @@ from .constants import (
     TARGET_RESNAME,
     TARGET_RESNUM,
 )
+from .workspace import (
+    WorkspaceError,
+    clean_state_title,
+    resolve_single_object as _resolve_single_object,
+)
 
 
 class ExportError(ValueError):
@@ -43,19 +48,6 @@ class ExportBundle:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def clean_state_title(value: Any, *, state: int) -> str:
-    """Normalize titles produced by PyMOL's multi-record SDF reader.
-
-    PyMOL 2.5 and 3.1 append the literal token ``none`` to titles for SDF
-    records without an explicit state annotation.  It is an implementation
-    detail, not part of the compound name.
-    """
-
-    title = str(value or "").strip()
-    title = re.sub(r"(?:\s+|^)none$", "", title, flags=re.IGNORECASE).strip()
-    return title or f"State {state}"
 
 
 def parse_states(spec: Any, *, current: int, total: int) -> list[int]:
@@ -84,15 +76,9 @@ def parse_states(spec: Any, *, current: int, total: int) -> list[int]:
 
 def resolve_single_object(cmd: Any, selection: str) -> str:
     try:
-        objects = cmd.get_object_list(f"({selection})")
-    except Exception as exc:
-        raise ExportError(f"Invalid ligand selection: {selection}") from exc
-    if len(objects) != 1:
-        raise ExportError(
-            "Ligand selection must resolve to exactly one molecular object; "
-            f"found {len(objects)}"
-        )
-    return objects[0]
+        return _resolve_single_object(cmd, selection)
+    except WorkspaceError as exc:
+        raise ExportError(str(exc)) from exc
 
 
 def _pdb_atom_lines(pdb_text: str) -> list[str]:

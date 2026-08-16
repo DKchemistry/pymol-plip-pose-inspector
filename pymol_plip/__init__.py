@@ -1,22 +1,13 @@
-# Name: PLIP Pose Inspector
-# Version: 0.4.0
+# Name: PyMOL Pose Inspector
+# Version: 0.5.0
 # Citation: Adasme et al. (2021), doi:10.1093/nar/gkab294; Salentin et al. (2015), doi:10.1093/nar/gkv315
-"""PyMOL entry point for PLIP Pose Inspector.
-
-Imports are intentionally lazy so the external PLIP worker can import shared
-modules without having PyMOL installed in its environment.
-
-Interaction perception is provided by PLIP. Please cite: Salentin et al.,
-PLIP: fully automated protein-ligand interaction profiler, Nucleic Acids
-Research 43(W1), W443-W447 (2015), doi:10.1093/nar/gkv315.
-"""
+"""PyMOL entry point for state-aware interaction and ligand review."""
 
 from __future__ import annotations
 
 from .constants import PLUGIN_VERSION as __version__
 
-_controller = None
-_dialog = None
+_application = None
 _initialized = False
 
 
@@ -30,31 +21,31 @@ def _as_bool(value):
     return bool(int(value))
 
 
-def get_controller():
-    global _controller
-    if _controller is None:
+def get_application():
+    global _application
+    if _application is None:
         from pymol import cmd
 
-        from .controller import PoseInspectorController
+        from .application import PoseInspectorApplication
 
-        _controller = PoseInspectorController(cmd)
-    return _controller
+        _application = PoseInspectorApplication(cmd)
+    return _application
+
+
+def get_controller():
+    return get_application().plip_controller
+
+
+def get_review_controller():
+    return get_application().review_controller
+
+
+def pose_inspector_gui():
+    return get_application().show_main()
 
 
 def plip_gui():
-    global _dialog
-    from .dialog import PoseInspectorDialog
-
-    controller = get_controller()
-    if _dialog is None:
-        _dialog = PoseInspectorDialog(controller)
-    _dialog.show()
-    _dialog.raise_()
-    _dialog.activateWindow()
-    from pymol.Qt import QtCore
-
-    QtCore.QTimer.singleShot(0, _dialog.show_citation_once)
-    return _dialog
+    return pose_inspector_gui()
 
 
 def plip_analyze(
@@ -65,8 +56,7 @@ def plip_analyze(
     filtered=1,
     pocket="current",
 ):
-    controller = get_controller()
-    return controller.analyze(
+    return get_controller().analyze(
         receptor=str(receptor),
         ligand=str(ligand),
         states=states,
@@ -88,24 +78,36 @@ def plip_pocket(mode="current", ligand=""):
     return get_controller().set_pocket_mode(mode, str(ligand))
 
 
+def ligand_review_gui(ligand=""):
+    return get_application().show_review(str(ligand))
+
+
 def plip_2d(ligand=""):
-    """Open the optional Ligand Review Panel on this run's ligand."""
     ligand = str(ligand).strip()
-    controller = get_controller()
+    application = get_application()
     if not ligand:
-        ligand = controller.active_ligand_object
-    if not ligand and _dialog is not None:
-        ligand = _dialog.ligand.currentText().strip()
+        ligand = application.session.active_selection or get_controller().active_ligand_object
     if not ligand:
         raise ValueError("Choose a ligand object before opening the 2D reviewer")
-    try:
-        import pymol_ligand_review
-    except ImportError as exc:
-        raise RuntimeError(
-            "Ligand Review Panel is not installed. Install its PyMOL Plugin Manager ZIP, "
-            "then reopen this action."
-        ) from exc
-    return pymol_ligand_review.ligand_review_gui(ligand)
+    return application.show_review(ligand)
+
+
+def ligand_review_attach(ligand):
+    return get_review_controller().attach(str(ligand), force=True)
+
+
+def ligand_review_mark(enabled="toggle", name="", identifier=""):
+    return get_review_controller().mark_current(
+        enabled=str(enabled), name=str(name), identifier=str(identifier)
+    )
+
+
+def ligand_review_export(filename):
+    return get_review_controller().export_csv(str(filename))
+
+
+def ligand_review_clear():
+    return get_review_controller().clear_selections()
 
 
 def __init_plugin__(app=None):
@@ -115,11 +117,21 @@ def __init_plugin__(app=None):
     from pymol import cmd
     from pymol.plugins import addmenuitemqt
 
-    cmd.extend("plip_gui", plip_gui)
-    cmd.extend("plip_analyze", plip_analyze)
-    cmd.extend("plip_toggle", plip_toggle)
-    cmd.extend("plip_pocket", plip_pocket)
-    cmd.extend("plip_2d", plip_2d)
-    cmd.extend("plip_clear", plip_clear)
-    addmenuitemqt("PLIP Pose Inspector", plip_gui)
+    commands = {
+        "pose_inspector_gui": pose_inspector_gui,
+        "plip_gui": plip_gui,
+        "plip_analyze": plip_analyze,
+        "plip_toggle": plip_toggle,
+        "plip_pocket": plip_pocket,
+        "plip_2d": plip_2d,
+        "plip_clear": plip_clear,
+        "ligand_review_gui": ligand_review_gui,
+        "ligand_review_attach": ligand_review_attach,
+        "ligand_review_mark": ligand_review_mark,
+        "ligand_review_export": ligand_review_export,
+        "ligand_review_clear": ligand_review_clear,
+    }
+    for name, function in commands.items():
+        cmd.extend(name, function)
+    addmenuitemqt("PyMOL Pose Inspector", pose_inspector_gui)
     _initialized = True

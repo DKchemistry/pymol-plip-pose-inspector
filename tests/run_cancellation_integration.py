@@ -32,7 +32,7 @@ def main() -> int:
     app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
     controller = PoseInspectorController(cmd)
     controller.set_worker_python(
-        str(Path.home() / "miniconda3/envs/pymol-plip-plugin/bin/python")
+        str(Path.home() / "miniconda3/envs/pymol-pose-inspector/bin/python")
     )
     phase = {"number": 1, "failed": None}
     baseline = {}
