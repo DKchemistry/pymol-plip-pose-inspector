@@ -74,6 +74,7 @@ class ConsolidationTests(unittest.TestCase):
         from pymol import cmd
         from pymol_plip.application import PoseInspectorApplication
 
+        _qt_app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
         cmd.reinitialize()
         application = PoseInspectorApplication(cmd)
         try:

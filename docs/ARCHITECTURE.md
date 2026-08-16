@@ -1,129 +1,100 @@
-# Architecture notes
+# Architecture
 
-## Runtime boundary
+## Application and runtime boundaries
 
-PyMOL 2.5 and 3.1 use different embedded Python runtimes. Importing PLIP or
-OpenBabel into either process risks binary and dependency conflicts. The plugin
-therefore exports immutable analysis inputs and starts one `QProcess` using the
-dedicated `pymol-plip-plugin` environment. Communication is newline-delimited
-JSON; no PLIP object crosses the process boundary.
+One long-lived application container owns the PyMOL command API, shared ligand
+selection, one 125 ms state watcher, unified settings, both controllers, both
+nonmodal dialogs, and the session-only compound worklist. The interaction
+dialog and detachable 2D window can close independently without destroying
+controllers or synchronization.
 
-The worker requires exactly PLIP 3.0.1 and OpenBabel 3.2.1 or newer and reports
-its Python and engine versions before analysis. Startup never mutates any
-environment.
+PLIP, OpenBabel, and RDKit are never imported into PyMOL. Two independent
+`QProcess` jobs use the same validated `pymol-pose-inspector` Python 3.12
+environment. Newline-delimited JSON streams results, failures, progress, and
+completion. PLIP and RDKit can run concurrently and be cancelled independently.
 
 ```mermaid
 flowchart LR
-    A["PyMOL receptor + multi-state ligand"] --> B["Immutable per-state PDB export"]
-    B --> C["External PLIP worker"]
-    C --> D{"Per-pose cache hit?"}
-    D -->|yes| E["Versioned normalized profile"]
-    D -->|no| F["PLIP analysis"]
-    F --> E
-    E --> G["Nine state-aligned measurement objects"]
-    G --> H["Native PyMOL state arrows"]
+    A["Shared PyMOL ligand selection + state"] --> B["PLIP controller"]
+    A --> C["RDKit review controller"]
+    B --> D["External PLIP/OpenBabel process"]
+    C --> E["External RDKit process"]
+    D --> F["State-aligned measurements + pockets"]
+    E --> G["Cached PNG + SMILES + worklist"]
+    F --> H["Immediate state switching"]
+    G --> H
 ```
 
-## Export contract
+A combined health check requires PLIP 3.0.1, OpenBabel 3.2.1, RDKit
+2025.03.5, and reports the external Python version. Startup never mutates an
+environment.
 
-- The receptor state is frozen when analysis starts.
-- The default effective selection is `(user receptor) and
-  (polymer.protein or solvent or inorganic)`.
+## Shared workspace contract
+
+The active ligand selection must resolve to exactly one molecular object. A
+selection change in either dialog updates the other and starts current-state-
+first RDKit generation; it never silently starts PLIP. PLIP attaches compatible
+saved overlays when present and otherwise waits for an explicit analysis
+action. Object discovery excludes every `PLIP_Pose_Inspector_*` object.
+
+The shared watcher emits only state/title changes. Native measurements and
+state-aligned pocket objects perform all 3D switching inside PyMOL, while the
+review controller selects an already-generated `QPixmap` and metadata record.
+
+## PLIP export, cache, and rendering
+
+- The receptor state is frozen when analysis starts; the default effective
+  selection is `(user receptor) and (polymer.protein or solvent or inorganic)`.
 - Ligand coordinates, elements, formal charges, explicit hydrogens, and integer
-  bond orders are reconstructed from `cmd.get_model` without touching the
-  source object.
-- Each requested pose is assigned a collision-checked synthetic `LIG` residue
-  identity. The worker retains only that exact PLIP binding-site key, so
-  unrelated cofactors in the receptor cannot leak into the requested profile.
-- Input hydrogens are used only when both partners contain them. Otherwise PLIP
-  adds missing polar hydrogens. The choice is stored in the profile and cache
-  key.
+  bond orders are reconstructed without modifying the source object.
+- A collision-checked synthetic `LIG` identity limits PLIP output to the
+  requested ligand. Input hydrogens are used only when both partners contain
+  them; otherwise PLIP adds missing polar hydrogens.
+- Gzip JSON profile keys include schemas, engines, receptor and ligand
+  chemistry, selection/state, target identity, and hydrogen policy. The legacy
+  cache path and schemas remain unchanged.
+- Nine native measurement objects always receive the ligand's full state
+  count, including explicit empty states. PLIP colors and per-object dash
+  patterns remain editable, and global `dash_radius` is inherited.
+- `..._Pocket` contains each state's interacting residues plus a hidden
+  sentinel; `..._Pocket_All` contains the union. Mode switching only changes
+  enablement and survives PSE save/reopen.
 
-PDB is used only as PLIP's process-boundary input. The loaded PyMOL chemistry is
-the authoritative source; the supplied PLIP 2.4 XML/PSE files are presentation
-references, not count fixtures.
+Normalized profiles are not embedded in PSEs. Reattached sessions retain
+geometry, visibility, pocket mode, and appearance while profile-only counts,
+hydrogen details, and diagnostics are marked unavailable.
 
-## Profile schema
+## RDKit export, cache, and selection
 
-Each profile records:
+Each ligand state is exported independently as SDF without changing the source.
+The active state is first in the manifest. RDKit sanitizes the graph, assigns
+stereochemistry, removes explicit hydrogens for standard medicinal-chemistry
+presentation, generates canonical isomeric SMILES, and draws a 600×400 Cairo
+PNG. Invalid states fail independently and cannot be marked.
 
-- schema version, compound title, receptor and pose hashes;
-- PLIP, OpenBabel, and Python versions;
-- hydrogen policy and captured diagnostics;
-- interacting receptor residues;
-- typed edges with start/end coordinates and class-specific metadata.
+PNG keys contain canonical SMILES, RDKit and depiction schema versions,
+dimensions, and drawing settings. The legacy depiction cache path and keys are
+retained. Identical structures share a depiction.
 
-The canonical classes are `hydrogen_bonds`, `hydrophobic_contacts`,
-`halogen_bonds`, `water_bridges`, `salt_bridges`,
-`pi_stacking_parallel`, `pi_stacking_t`, `pi_cation`, and
-`metal_coordination`. A water bridge is represented by two connected edges so
-the water position remains visible in the measurement geometry.
+The stable compound identity hashes the cleaned original PyMOL state title and
+canonical isomeric SMILES. Editable Name and Identifier values are export
+metadata only. Matching `object:state` sources accumulate in an ordered,
+process-local worklist. CSV output uses Python CSV quoting and an atomic
+same-directory replacement.
 
-## Cache
+## Compatibility and ownership
 
-The default macOS location is
-`~/Library/Caches/PLIPPoseInspector`. Entries are gzip-compressed JSON and are
-written atomically. Cache keys include:
+The public package remains `pymol_plip`; the user-facing product is PyMOL Pose
+Inspector. `pymol_ligand_review` is a forwarding facade. All `plip_*` and
+`ligand_review_*` commands remain registered alongside `pose_inspector_gui`.
+Only one Plugin menu item is added.
 
-- cache and profile schema versions;
-- PLIP, OpenBabel, and worker Python versions;
-- receptor atoms/connectivity and selected receptor expression/state;
-- ligand atoms, coordinates, connectivity, formal charges, and hydrogens;
-- target synthetic residue identity and hydrogen policy.
+Existing `PLIP_Pose_Inspector_*` PSE object names, both cache locations, cache
+schemas, appearance defaults, citation state, and CSV columns are preserved.
+Legacy settings are read during first-run migration, but an old worker path is
+accepted only when it passes the complete combined health check. The plugin
+never deletes old environments or user molecular objects.
 
-Changing any of these inputs causes an independent miss. Successful poses are
-cached even when another state fails or the later run is cancelled.
-
-## Rendering and ownership
-
-One native PyMOL measurement object is created per interaction class. Every
-object receives the ligand's complete state count. A zero-length measurement
-in the final state is invisible but forces PyMOL to retain trailing and
-intermediate empty states for missing, failed, or not-yet-analyzed poses. This
-prevents a previous state's contacts from remaining visible and lets PyMOL
-synchronize geometry natively without analysis or redraw callbacks.
-
-Measurements use PLIP's established colors and class-specific dash length/gap
-patterns. Their `dash_radius` object setting is deliberately unset, so they
-inherit the user's global PyMOL setting like any user-created measurement.
-Validated per-class appearance defaults are stored separately in `QSettings`;
-applying them changes only native object settings and never interaction
-geometry or cache keys.
-
-All names begin with `PLIP_Pose_Inspector_` and live under a run group with
-`Interactions` and `Structures` subgroups. Only these names are ever deleted.
-Two pocket objects are materialized after analysis. `..._Pocket` is discrete:
-each state holds exactly that profile's receptor residues plus a hidden
-sentinel atom, which retains explicit empty and trailing states.
-`..._Pocket_All` is a static one-state deduplicated residue union. Pocket mode
-only enables one or disables both; geometry is never deleted or rebuilt during
-switching. A fresh controller discovers namespaced measurement objects,
-reattaches by ligand, infers mode from enablement, and can migrate a Beta 0.2
-current-only pocket to a union using its residue identities and the selected
-receptor—without PLIP.
-
-Normalized profiles are intentionally not embedded in PSE files. Reattached
-sessions retain geometry, interaction visibility, pocket modes, and appearance
-settings, while counts, hydrogen policy, and diagnostic text are reported as
-unavailable.
-
-The 175 ms state watcher updates only dialog text and counts. It never rebuilds
-or deletes molecular geometry. Closing the dialog does not destroy the
-controller or watcher.
-
-## Optional Ligand Review bridge
-
-The **2D Review…** action and `plip_2d` command dynamically import the separate
-`pymol_ligand_review` package and pass the current ligand selection. There is
-no package-level dependency and no RDKit import in PLIP or PyMOL. Once opened,
-the companion watches PyMOL's global state independently, while PLIP's native
-measurement objects continue switching normally. A missing companion produces
-installation guidance without affecting analysis or saved overlays.
-
-## Failure and cancellation semantics
-
-The current overlay stays intact while a worker runs. On partial completion,
-successful state profiles render with explicit empty states for failures and
-the UI reports each failed pose. Cancelling kills the worker, discards pending
-UI results, preserves the previous overlay, and leaves already completed cache
-entries available for the next run.
+Cancelling PLIP preserves the previous overlay and completed cache entries.
+Cancelling RDKit retains already-streamed depictions. Partial state failures are
+reported independently in both workflows.

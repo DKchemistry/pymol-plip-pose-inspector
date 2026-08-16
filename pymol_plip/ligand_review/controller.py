@@ -57,6 +57,7 @@ class LigandReviewController(QtCore.QObject):
         self._cancelled = False
         self._last_state_key: tuple[Any, ...] | None = None
         self._session_attach_pending = False
+        self._pending_session_selection = ""
 
         if self.session is None:
             self.state_timer = QtCore.QTimer(self)
@@ -151,7 +152,10 @@ class LigandReviewController(QtCore.QObject):
     def _session_ligand_changed(
         self, selection: str, _ligand_object: str, _total: int
     ) -> None:
-        if self.is_running or (
+        if self.is_running:
+            self._pending_session_selection = selection
+            return
+        if (
             selection == self.active_selection
             and self.active_ligand_object == _ligand_object
             and self.total_states == _total
@@ -285,6 +289,19 @@ class LigandReviewController(QtCore.QObject):
             self.records_changed.emit()
             self._last_state_key = None
             self._poll_state()
+            pending = self._pending_session_selection
+            self._pending_session_selection = ""
+            if (
+                pending
+                and pending != self.active_selection
+                and self.session is not None
+                and pending == self.session.active_selection
+            ):
+                self._session_ligand_changed(
+                    pending,
+                    self.session.active_ligand_object,
+                    self.session.total_states,
+                )
 
     def current_state(self) -> int:
         if self.session is not None:

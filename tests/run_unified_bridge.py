@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from pymol import cmd
 from pymol.Qt import QtWidgets
@@ -69,4 +73,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

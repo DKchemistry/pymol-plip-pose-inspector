@@ -10,7 +10,8 @@ orient EP4_poses
 python
 import pymol_plip
 pymol_plip.__init_plugin__()
-pymol_plip.plip_gui()
+pymol_plip.pose_inspector_gui()
 python end
+ligand_review_gui EP4_poses
 plip_analyze EP4_receptor, EP4_poses, states=all
 set dash_radius, .09

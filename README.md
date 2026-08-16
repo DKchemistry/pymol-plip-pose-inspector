@@ -1,185 +1,156 @@
-# PLIP Pose Inspector for PyMOL
+# PyMOL Pose Inspector
 
-PLIP Pose Inspector is a nonmodal PyMOL 2.5+/Qt5 plugin for reviewing
-protein–ligand contacts across a multi-state docking object. It runs PLIP in a
-separate conda environment, caches every pose independently, and renders one
-state-aligned native measurement object per interaction class. PyMOL's ordinary
-state arrows therefore change both the ligand pose and its contacts immediately.
+PyMOL Pose Inspector is a nonmodal PyMOL 2.5+/Qt5 plugin for docking-pose
+triage. It combines state-aligned PLIP protein–ligand interactions with an
+RDKit 2D structure viewer, canonical SMILES, compound marking, and CSV export.
+Both views follow the same multi-state ligand object and PyMOL state.
 
-The current release is an Apple Silicon beta tested against the local PyMOL
-2.5.0 and 3.1.0 installations in this workspace.
+The current Apple Silicon beta is tested with the local PyMOL 2.5.0 and 3.1.0
+installations in this workspace.
 
-![PLIP Pose Inspector controls](docs/PLIP_Pose_Inspector_GUI.png)
+![PyMOL Pose Inspector controls](docs/PyMOL_Pose_Inspector_GUI.png)
+
+![State-synchronized 2D ligand review](docs/Ligand_Review_Panel.png)
 
 ## Features
 
-- Precompute all ligand states or analyze only the current state.
-- Persistent, content-addressed, compressed per-pose cache.
-- Hydrogen bonds, PLIP hydrophobic contacts, halogen bonds, water bridges,
-  salt bridges, parallel and T-shaped pi stacking, pi-cation contacts, and
-  metal coordination.
-- Independent visibility controls for every class; hydrophobic contacts start
-  hidden to reduce clutter.
-- A plugin-owned pocket can show residues for the current pose, the union from
-  all analyzed poses, or remain hidden. Its geometry is state-aligned and
-  survives saving and reopening a PSE. Both geometries are prebuilt, so mode
-  changes never rerun PLIP.
-- Native measurement objects inherit PyMOL's global `dash_radius`, while PLIP
-  colors and class-specific dash length/gap settings remain object-local.
-- The Appearance dialog provides per-class RGB colors and solid, dashed,
-  long-dashed, or custom patterns. Apply styles to one overlay or save them as
-  defaults for future analyses.
-- Captured PLIP diagnostics are directly viewable and copyable for the current
-  pose.
-- Original receptor and ligand objects and their representations are not
-  modified.
-- Scriptable `plip_gui`, `plip_analyze`, `plip_toggle`, `plip_pocket`, and
-  `plip_clear` commands, plus an optional `plip_2d` bridge to Ligand Review
-  Panel.
+- Precompute PLIP contacts for all ligand states or analyze only the current
+  pose, with persistent per-pose caching and independent cancellation.
+- Native, state-aligned PyMOL measurement objects for nine PLIP interaction
+  classes. PyMOL's state arrows switch ligand and interactions immediately.
+- Current-pose, all-analyzed, or hidden interacting-residue pockets that
+  survive PSE save/reopen without recomputation.
+- Project-local and saved-default interaction colors and dash patterns, while
+  normal PyMOL `dash_radius` behavior remains intact.
+- A detachable 600×400 RDKit depiction, canonical isomeric SMILES, editable
+  compound metadata, Previous/Next navigation, compound marking, and atomic
+  UTF-8 CSV export.
+- One shared ligand selection, state watcher, settings dialog, external Python
+  environment, and Plugin menu entry.
+- Original receptor and ligand objects, chemistry, and representations remain
+  untouched.
 
 ## Install
 
-Create the external worker environment once:
+Create the unified external environment once:
 
 ```bash
 /Users/lkv206/miniconda3/bin/conda env create -f environment.yml
 ```
 
-Build the Plugin Manager archive:
+Build the reproducible Plugin Manager archive:
 
 ```bash
 python3 scripts/build_plugin_zip.py
 ```
 
 In PyMOL, open **Plugin → Plugin Manager → Install New Plugin**, select
-`dist/PLIP_Pose_Inspector-0.4.0.zip`, then open **Plugin → PLIP Pose
-Inspector**. The plugin auto-detects
-`~/miniconda3/envs/pymol-plip-plugin/bin/python`; a different interpreter can
-be selected and health-checked under **Settings**.
+`dist/PyMOL_Pose_Inspector-0.5.0.zip`, then open
+**Plugin → PyMOL Pose Inspector**. The plugin auto-detects
+`~/miniconda3/envs/pymol-pose-inspector/bin/python`. A different interpreter
+can be selected under **Settings…**, where PLIP, OpenBabel, RDKit, and Python
+are health-checked together.
 
-The plugin never installs or upgrades dependencies when PyMOL starts.
+The plugin never installs, updates, or removes environments at PyMOL startup.
+The retired standalone Ligand Review Panel 0.1 plugin should be removed after
+upgrading; all of its commands and the detachable 2D window are included here.
 
-## Use
+## Workflow
 
-1. Load a receptor object and a ligand object whose states are docking poses.
-2. Choose those objects in the dialog. The default receptor filter includes
-   `polymer.protein or solvent or inorganic` within the chosen receptor.
-3. Press **Precompute All**. Analysis occurs outside PyMOL and existing
-   overlays remain visible until a complete or partially successful result is
-   ready.
-4. Use PyMOL's state arrows normally. Toggle interaction classes or choose
-   **Current pose**, **All analyzed poses**, or **Hidden** for the pocket.
+1. Load a receptor and a ligand object whose states are docking poses or
+   compounds.
+2. Select both objects and press **Precompute All**. PLIP analysis and RDKit
+   depiction generation run outside PyMOL in independent background processes.
+3. Change states with PyMOL's arrows, `cmd.frame`, or the 2D panel's
+   Previous/Next controls. Contacts, pockets, title, depiction, and SMILES stay
+   synchronized.
+4. Use **2D Review…** to inspect structures. Edit Name or Identifier and press
+   **Mark Compound** for candidates of interest.
+5. Review marked compounds, jump back to their poses, copy SMILES, and export
+   the worklist to CSV.
 
-Opening the dialog on a saved PSE automatically attaches to its existing PLIP
-objects. Pocket, visibility, and appearance controls remain available without
-normalized profiles or a worker run; counts, hydrogen details, and diagnostics
-are marked unavailable until a live analysis supplies profiles.
+RDKit depictions are cached by canonical isomeric SMILES and engine/drawing
+version. PLIP profiles remain cached by receptor and pose chemistry, analysis
+settings, and engine versions. The caches keep their pre-0.5 locations and
+formats, so upgrading does not discard prior work.
 
-**Analyze Current Only** is useful for a quick one-pose check. It still creates
-empty overlay and pocket states elsewhere, and later analyses of the same
-objects merge into the run. **Refresh Object Lists** rescans molecular objects
-that were loaded, deleted, or renamed while the dialog was open; this also
-happens automatically whenever the dialog is shown.
+Selections are intentionally session-only. Closing and reopening either window
+retains them while PyMOL is running; exiting PyMOL clears them unless they were
+exported.
 
-`Hydrophobic contacts` uses PLIP's geometric interaction definition; it is not
-a generic all-atom van der Waals calculation.
-
-Equivalent command-line use:
+## Commands
 
 ```pml
+pose_inspector_gui
 plip_gui
-plip_analyze receptor, ligands, states=all, pocket=current
-plip_analyze receptor, ligands, states=current, receptor_state=1, pocket=all
+plip_analyze receptor, poses, states=all, pocket=current
+plip_analyze receptor, poses, states=current, receptor_state=1, pocket=all
 plip_toggle types=hbonds,salt, enabled=off
-plip_toggle types=all, enabled=toggle
-plip_pocket mode=current, ligand=ligands
 plip_pocket mode=all
-plip_pocket mode=off
 plip_2d
-plip_2d ligand=ligands
 plip_clear
+
+ligand_review_gui ligand=poses
+ligand_review_attach poses
+ligand_review_mark enabled=on, name=Candidate 7, identifier=ZINC000000000007
+ligand_review_export selected_compounds.csv
+ligand_review_clear
 ```
 
-For native dash styling, normal PyMOL commands now work immediately:
+The legacy `plip_*` and `ligand_review_*` contracts remain supported. Python
+code importing `pymol_ligand_review` is forwarded to the integrated
+implementation.
+
+For native dash styling:
 
 ```pml
 set dash_radius, .09
 set dash_gap, .25, PLIP_Pose_Inspector_*_Hydrophobic_contacts
 ```
 
-The plugin never changes the global dash radius during ordinary analysis.
-`pocket=1` and `pocket=0` remain aliases for `current` and `off`.
+PLIP's hydrophobic contacts are its geometric interaction category, not a
+generic all-atom van der Waals calculation.
 
-Use **Appearance…** for per-class colors and line patterns. **Apply to Current
-Overlay** remains project-local and persists when that PSE is saved. **Apply &
-Save as My Defaults** affects subsequent analyses, while **Restore PLIP
-Defaults** clears the saved class preferences. Global radius remains a PyMOL
-session/project setting because it also affects unrelated measurements.
+## CSV contract
 
-`plip_clear` deletes only namespaced objects owned by the plugin. Closing the
-dialog leaves overlays and state synchronization active.
+Rows are emitted in selection order with these columns:
 
-## Optional 2D ligand review
+`name, identifier, smiles, ligand_object, selected_state, matching_sources, selected_at_utc`
 
-PLIP Pose Inspector 0.4 adds **2D Review…**, which opens the separately
-installed **Ligand Review Panel** on the current ligand selector. The companion
-uses an external RDKit process to show the current state's 2D structure and
-canonical SMILES, mark compounds, and export a compound-level CSV worklist.
-Both windows follow PyMOL's global state independently, so either can remain
-open or be hidden without affecting the other.
+Compounds are grouped by cleaned original state identifier plus canonical
+isomeric SMILES. Editable export metadata does not change that stable identity.
 
-Install the companion's Plugin Manager ZIP and RDKit environment before using
-this action. If it is absent, PLIP reports installation guidance and all
-interaction-analysis functionality remains available.
+## Demo and tests
 
-## EP4 beta demo
-
-From this repository, start PyMOL and run:
+From the repository root:
 
 ```pml
 @demos/ep4_first5.pml
 ```
 
-The script loads the receptor and five supplied poses, opens the dialog, and
-starts precomputation. See [Beta feedback](docs/BETA_FEEDBACK.md) for the short
-review checklist. A precomputed PyMOL 2.5-compatible session is also available
-at `demos/EP4_first5_beta.pse`.
+The precomputed interaction session remains at `demos/EP4_first5_beta.pse` and
+retains the compatible `PLIP_Pose_Inspector_*` object namespace.
 
-![EP4 five-pose beta, state 2](docs/EP4_first5_beta.png)
-
-![Interaction appearance controls](docs/PLIP_Interaction_Appearance.png)
-
-Reference inputs and legacy PLIP webserver outputs live under `fixtures/`:
-`fixtures/ep4/`, `fixtures/ep4/webserver/`, and `fixtures/2rh1/`.
-
-## Tests
+Run unit tests and the real combined five-pose workflow with:
 
 ```bash
-python3 -m unittest discover -s tests -v
-/opt/local/bin/python3.11 -m unittest tests.test_rendering -v
+QT_QPA_PLATFORM=offscreen /Users/lkv206/miniconda3/bin/conda run -n pymol_jupyter \
+  python -m unittest discover -s tests -v
 /Users/lkv206/miniconda3/bin/conda run -n pymol_jupyter \
-  python -m unittest tests.test_rendering -v
+  python tests/run_unified_integration.py --states 5
 ```
 
-The first command covers serialization, cache invalidation, normalized
-profiles, dialog geometry, and error cases. The latter two validate native
-measurement colors/settings, explicit empty states, pocket modes, and PSE
-persistence in PyMOL 2.5 and 3.1.
-
-The Beta 0.3 supplied 118-pose integration completed with 118/118 profiles and
-no failures in both PyMOL versions. PyMOL 2.5 took 26.8 seconds cold and 2.5
-seconds warm (approximately 95 MiB peak RSS); PyMOL 3.1 took 25.4 seconds cold
-and 2.3 seconds warm (approximately 129 MiB peak RSS). Warm timing includes
-rebuilding every state-aligned native object from 118 cache hits. State and
-pocket switching itself remains immediate and does not launch the worker.
+Reference fixtures and legacy PLIP webserver outputs live under
+`fixtures/ep4/`, `fixtures/ep4/webserver/`, and `fixtures/2rh1/`.
 
 ## Attribution
 
-Interaction perception is provided by [PLIP](https://github.com/pharmai/plip)
-3.0.1 with OpenBabel 3.2.1. The plugin presents the PLIP authors' recommended
-2021 and 2015 citations on first use and from the permanent **Citation…**
-button. PLIP's established interaction colors and presentation remain the
-initial defaults.
+Interaction perception is provided by
+[PLIP](https://github.com/pharmai/plip) 3.0.1 with OpenBabel 3.2.1. The plugin
+shows the PLIP authors' recommended 2021 and 2015 citations on first use and
+from **Citation…**. 2D chemistry and depictions use
+[RDKit](https://www.rdkit.org/) 2025.03.5. OpenBabel and RDKit attribution is
+also available in the permanent documentation and unified health display.
 
-Implementation decisions and cache/profile schemas are documented in
-[Architecture](docs/ARCHITECTURE.md).
+See [Architecture](docs/ARCHITECTURE.md) for process, cache, PSE, and migration
+contracts and [Beta feedback](docs/BETA_FEEDBACK.md) for the review checklist.

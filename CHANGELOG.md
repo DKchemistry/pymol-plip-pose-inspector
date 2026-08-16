@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-08-16
+
+- Consolidated PLIP Pose Inspector and Ligand Review Panel into one **PyMOL
+  Pose Inspector** Plugin Manager ZIP and one menu entry.
+- Added one shared ligand selection, 125 ms state watcher, application
+  container, settings namespace, and external worker interpreter.
+- Added the integrated detachable RDKit depiction, canonical SMILES, compound
+  marking, selected-compound review, and atomic CSV export workflow.
+- Added the unified Python 3.12 environment with PLIP 3.0.1, OpenBabel 3.2.1,
+  and RDKit 2025.03.5 plus a complete combined health check.
+- Preserved every legacy command, cache schema/location, PSE object namespace,
+  appearance preference, CSV contract, and a `pymol_ligand_review` import
+  facade.
+- Imported and tagged the standalone reviewer's two-commit history and retired
+  its separate ZIP distribution.
+- Added concurrent five/118-pose, compatibility, synchronization, cancellation,
+  and cross-version verification.
+
 ## 0.4.0 — 2026-08-16
 
 - Added an optional **2D Review…** launcher for the standalone Ligand Review

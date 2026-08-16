@@ -7,9 +7,13 @@ import argparse
 import csv
 import json
 import resource
+import sys
 import tempfile
 import time
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from pymol import cmd
 from pymol.Qt import QtCore, QtGui, QtWidgets

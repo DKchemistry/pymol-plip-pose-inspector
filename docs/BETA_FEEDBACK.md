@@ -2,7 +2,7 @@
 
 ## Gate 1 — five-pose EP4 presentation
 
-Status: Beta 0.4 ready for user retest after opening `demos/EP4_first5_beta.pse` or
+Status: Beta 0.5 ready for user retest after opening `demos/EP4_first5_beta.pse` or
 running `@demos/ep4_first5.pml`.
 
 Please review:
@@ -14,6 +14,10 @@ Please review:
 - Are the object selectors, interaction toggles, counts, and progress display
   comfortable for routine compound triage?
 - Does state switching feel immediate with all and individual classes enabled?
+- Does the detachable 2D structure remain readable beside your usual PyMOL
+  window, and do Name/Identifier editing and marking fit your triage rhythm?
+- Does the selected-compound table and CSV contain the traceability needed for
+  purchasing or downstream prioritization?
 
 Feedback log:
 
@@ -39,6 +43,11 @@ Feedback log:
   PyMOL 2.5/3.1 tests confirm the saved PLIP overlay and RDKit depiction follow
   the same state before and after the 2D window is hidden. Awaiting feedback on
   the combined 3D interaction/2D selection workflow.
+- 2026-08-16: live testing found the 2D reviewer worked exceptionally well and
+  requested one repository, installation, environment, and product. Beta 0.5
+  renames the product PyMOL Pose Inspector, integrates the detachable reviewer,
+  shares ligand/state/runtime settings, preserves legacy commands and caches,
+  and retires the standalone ZIP.
 
 ## Gate 2 — 118-pose EP4 performance
 
@@ -60,6 +69,10 @@ Internal validation is complete; user workflow feedback remains gated on Gate
 
 The remaining Gate 2 task is compound-triage feedback after Gate 1 presentation
 choices are accepted.
+
+Beta 0.5 adds a unified concurrent benchmark: PLIP profiles and RDKit
+depictions are generated from one Python 3.12 environment in independent
+processes, and both are checked against the same global PyMOL state.
 
 ## Gate 3 — CAU/2RH1 visual comparison
 
